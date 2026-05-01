@@ -40,6 +40,20 @@ export interface OverlayProxy {
   height: number;
 }
 
+/** A trajectory: an ordered list of points in data coordinates to be connected with a polyline. */
+export interface Trajectory {
+  /** Ordered points in data coordinates. */
+  points: { x: number; y: number }[];
+  /** Optional stroke color (CSS color). Defaults to a generated color per trajectory. */
+  color?: string;
+  /** Optional stroke width in CSS pixels. Defaults to 1.5. */
+  width?: number;
+  /** Optional stroke opacity. Defaults to 0.6. */
+  opacity?: number;
+  /** Optional identifier (e.g., episode id) — used for keying and default color hashing. */
+  id?: string | number;
+}
+
 type CustomComponentClass<N, P> = new (node: N, props: P) => { update?: (props: P) => void; destroy?: () => void };
 
 export type CustomComponent<N, P> =

@@ -20,5 +20,6 @@ export type {
   Label,
   LabelContent,
   OverlayProxy,
+  Trajectory,
 } from "./embedding_view/types.js";
 export type { Point, Rectangle, ViewportState } from "./utils.js";

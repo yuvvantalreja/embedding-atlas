@@ -1,19 +1,11 @@
-# Copyright (c) 2025 Apple Inc. Licensed under MIT License.
+"""
+Utilities for working with RL in Embedding Atlas
 
 """
-Utilities for working with RL replay buffer data.
 
-This module implements replay buffer visualization inspired by:
-"Vizarel: A System to Help Better Understand RL Agents" (Deshpande & Schneider, 2020)
-https://arxiv.org/abs/2007.05577
-
-The paper describes visualizing replay buffer experiences et = (st, at, rt, st+1)
-by projecting them into 2D space using dimensionality reduction (t-SNE/UMAP).
-"""
-
+import io
 import logging
 from typing import Any, Literal, Optional
-import io
 
 import numpy as np
 import pandas as pd
@@ -22,10 +14,7 @@ logger = logging.getLogger(__name__)
 
 ObsEncoderType = Literal["auto", "cnn", "pca", "raw"]
 
-
-# ---------------------------------------------------------------------------
 # Column detection
-# ---------------------------------------------------------------------------
 
 def detect_rl_columns(df: pd.DataFrame) -> dict[str, list[str]]:
     """
@@ -80,9 +69,7 @@ def detect_rl_columns(df: pd.DataFrame) -> dict[str, list[str]]:
     return detected
 
 
-# ---------------------------------------------------------------------------
 # Image detection helpers
-# ---------------------------------------------------------------------------
 
 def is_image_shaped(value: Any) -> bool:
     """
@@ -150,10 +137,7 @@ def _obs_to_rgb_pil(obs: np.ndarray):
 
     raise ValueError(f"Unsupported observation shape for image conversion: {obs.shape}")
 
-
-# ---------------------------------------------------------------------------
 # Observation encoders
-# ---------------------------------------------------------------------------
 
 def encode_image_observations(
     observations: list[np.ndarray],
@@ -226,7 +210,7 @@ def _encode_with_torchvision(
     Encode image observations using a pre-trained MobileNetV3-Small CNN.
 
     The classification head is removed so the output is a 576-dimensional
-    feature vector per observation – small enough for fast UMAP but rich
+    feature vector per observation - small enough for fast UMAP but rich
     enough to capture meaningful visual structure.
     """
     import torch

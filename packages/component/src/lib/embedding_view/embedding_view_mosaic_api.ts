@@ -8,7 +8,16 @@ import Component from "./EmbeddingViewMosaic.svelte";
 import type { Point, Rectangle, ViewportState } from "../utils.js";
 import type { EmbeddingViewConfig } from "./embedding_view_config.js";
 import type { ThemeConfig } from "./theme.js";
-import type { Cache, CustomComponent, DataField, DataPoint, DataPointID, Label, OverlayProxy } from "./types.js";
+import type {
+  Cache,
+  CustomComponent,
+  DataField,
+  DataPoint,
+  DataPointID,
+  Label,
+  OverlayProxy,
+  Trajectory,
+} from "./types.js";
 
 export interface EmbeddingViewMosaicProps {
   /** The Mosaic coordinator.
@@ -62,6 +71,11 @@ export interface EmbeddingViewMosaicProps {
    *  Each label must have `x`, `y`, and `text` properties,
    *  and optionally `level` and `priority`. */
   labels?: Label[] | null;
+
+  /** Trajectories to overlay: each is an ordered list of points in data coordinates
+   *  that will be connected with a polyline. Useful for visualizing sequential paths
+   *  (e.g., RL episodes) through the embedding. */
+  trajectories?: Trajectory[] | null;
 
   /** The width of the view. */
   width?: number | null;

@@ -2,7 +2,7 @@
 
 // The component API for embedding viewer.
 
-import type { EmbeddingViewConfig, Label } from "@embedding-atlas/component";
+import type { EmbeddingViewConfig, Label, Trajectory } from "@embedding-atlas/component";
 import type { Coordinator } from "@uwdata/mosaic-core";
 import { createClassComponent } from "svelte/legacy";
 
@@ -66,6 +66,10 @@ export interface EmbeddingAtlasProps {
 
   /** Labels for the embedding view. */
   embeddingViewLabels?: Label[] | null;
+
+  /** Trajectories to overlay on the embedding view: each is an ordered list of
+   *  points in data coordinates to be connected with a polyline. */
+  embeddingViewTrajectories?: Trajectory[] | null;
 
   /** Theme config for charts. */
   chartTheme?: ChartThemeConfig | null;

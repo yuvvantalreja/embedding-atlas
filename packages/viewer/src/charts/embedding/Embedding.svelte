@@ -270,6 +270,7 @@
       downsampleMaxPoints: spec.downsampleMaxPoints ?? defaultDownsampleMaxPoints,
     }}
     labels={context.embeddingViewLabels}
+    trajectories={context.embeddingViewTrajectories}
     cache={context.persistentCache}
     additionalFields={Object.fromEntries(context.columns.map((c) => [c.name, c.name]))}
     customTooltip={{

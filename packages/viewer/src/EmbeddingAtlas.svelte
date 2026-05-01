@@ -29,6 +29,7 @@
     defaultChartsConfig,
     embeddingViewConfig = null,
     embeddingViewLabels = null,
+    embeddingViewTrajectories = null,
     chartTheme,
     colorScheme: colorSchemeProp,
     onExportApplication,
@@ -95,8 +96,40 @@
   }
 
   $effect.pre(() => {
-    if (chartTheme !== get(store.chartTheme)) {
-      store.chartTheme.set(chartTheme ?? undefined);
+    chartThemeStore.set(chartTheme ?? undefined);
+  });
+
+  // svelte-ignore state_referenced_locally
+  let chartContext: ChartContext = {
+    coordinator: coordinator,
+    filter: crossFilter,
+    table: data.table,
+    id: data.id,
+    columns: [],
+    colorScheme: colorScheme,
+    theme: chartThemeStore,
+    columnStyles: resolvedColumnStyles,
+    cache: new ChartContextCache(),
+    persistentCache: cache ?? { get: async () => null, set: async (key, value) => {} },
+    searchModes: searchModes,
+    search: doSearch,
+    searchResult: searchResultStore,
+    highlight: writable(null),
+    embeddingViewConfig: embeddingViewConfig,
+    embeddingViewLabels: embeddingViewLabels,
+    embeddingViewTrajectories: embeddingViewTrajectories,
+  };
+
+  let charts = $state.raw<Record<string, any>>({});
+  let chartStates = $state.raw<Record<string, any>>({});
+  let layout = $state.raw<string>("list");
+  let layoutStates = $state.raw<Record<string, any>>({});
+
+  let chartDelegates = new Map<string, Set<ChartDelegate>>();
+
+  function registerChartDelegate(id: string, delegate: ChartDelegate): () => void {
+    if (!chartDelegates.has(id)) {
+      chartDelegates.set(id, new Set());
     }
   });
 
