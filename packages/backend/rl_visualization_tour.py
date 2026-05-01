@@ -40,7 +40,7 @@ def _():
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    return DQN, EmbeddingAtlasWidget, async_compute_projection, gym, plt
+    return DQN, EmbeddingAtlasWidget, async_compute_projection, gym
 
 
 @app.cell
@@ -58,7 +58,6 @@ def _():
         compute_episode_metadata,
         compute_td_error,
         format_state_description,
-        plot_episode_timeline,
         prepare_rl_data_for_projection,
         unpack_state_components,
     )
@@ -123,12 +122,16 @@ def _(DQN, gym, pd):
         verbose=0,
         seed=42,
     )
+
+    print("model:", cartpole_model)
+
     cartpole_model.learn(total_timesteps=TOTAL_STEPS)
     env.close()
 
     # Extract replay buffer
     _buf = cartpole_model.replay_buffer
     _n = _buf.pos
+
 
     _rows = [
         {
@@ -142,6 +145,9 @@ def _(DQN, gym, pd):
         for i in range(_n)
     ]
     cartpole_df = pd.DataFrame(_rows)
+
+    print(cartpole_df.head)
+
     print(f"Extracted {len(cartpole_df)} replay buffer transitions.")
     return cartpole_df, cartpole_model
 
@@ -178,6 +184,8 @@ def _(
 
         # Episode metadata
         cp_df = compute_episode_metadata(cp_df, done_col="done", reward_col="reward")
+
+        print(cp_df.head)
 
         # Training stage
         _n = len(cp_df)
@@ -327,200 +335,11 @@ def _(cartpole_widget):
     return
 
 
-@app.cell
-def _(cartpole_proj, cartpole_widget, mo, np, pd, plt):
-    """Reactive selection analysis for CartPole."""
-    if cartpole_widget is not None:
-        _ = cartpole_widget._predicate
-        _sel = cartpole_widget.selection()
-    else:
-        _sel = pd.DataFrame()
-
-    if len(_sel) > 0:
-        # Summary statistics
-        _summary = mo.md(
-            f"**Selection:** {len(_sel)} transitions"
-            f" | training: {list(_sel['training_stage'].unique())}"
-            f" | pole_danger: {list(_sel['pole_danger'].unique())}"
-            f" | mean episode_length: **{_sel['episode_length'].mean():.0f}**"
-            f" | mean Q: **{_sel['q_value'].mean():.2f}**"
-            f" | mean TD error: **{_sel['td_error'].mean():.3f}**"
-        )
-
-        # Pole angle histogram: selection vs full dataset
-        _fig1, _ax1 = plt.subplots(1, 1, figsize=(5, 3))
-        _ax1.hist(
-            cartpole_proj["pole_angle"], bins=40, alpha=0.4, label="All", density=True
-        )
-        _ax1.hist(
-            _sel["pole_angle"], bins=40, alpha=0.7, label="Selected", density=True
-        )
-        _ax1.set_xlabel("Pole Angle (rad)")
-        _ax1.set_ylabel("Density")
-        _ax1.set_title("Pole Angle Distribution")
-        _ax1.legend()
-        _fig1.tight_layout()
-
-        # Action distribution bar chart
-        _fig2, _ax2 = plt.subplots(1, 1, figsize=(4, 3))
-        _act_full = cartpole_proj["action_name"].value_counts(normalize=True)
-        _act_sel = _sel["action_name"].value_counts(normalize=True)
-        _actions = sorted(set(_act_full.index) | set(_act_sel.index))
-        _x = np.arange(len(_actions))
-        _ax2.bar(
-            _x - 0.15,
-            [_act_full.get(a, 0) for a in _actions],
-            0.3,
-            label="All",
-            alpha=0.5,
-        )
-        _ax2.bar(
-            _x + 0.15,
-            [_act_sel.get(a, 0) for a in _actions],
-            0.3,
-            label="Selected",
-            alpha=0.8,
-        )
-        _ax2.set_xticks(_x)
-        _ax2.set_xticklabels(_actions)
-        _ax2.set_ylabel("Proportion")
-        _ax2.set_title("Action Distribution")
-        _ax2.legend()
-        _fig2.tight_layout()
-
-        mo.vstack(
-            [
-                _summary,
-                mo.hstack([mo.as_html(_fig1), mo.as_html(_fig2)]),
-            ]
-        )
-        plt.close(_fig1)
-        plt.close(_fig2)
-    else:
-        mo.md(
-            "*No selection yet — **lasso a cluster** in the widget above to inspect it.*\n\n"
-            "> **Quick guide:** Open the charts panel (sidebar icon). Click the `pole_danger: critical` "
-            "bar to highlight dangerous states. Then lasso those points to see the analysis below.\n\n"
-            "> The `td_category: very_surprising` filter highlights transitions where the agent's "
-            "predictions were most wrong — these are the most informative experiences."
-        )
-    return
-
-
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ---
-    ## Section 2 · Episode Trajectories — Following an Episode
-
-    RL is fundamentally **sequential**. The UMAP projection above treats each
-    transition as an independent point — losing the temporal structure.
-
-    Here we restore that structure: **select an episode** with the slider and see:
-    - Its **path through the embedding** (which regions of state-space the agent visited)
-    - A **timeline** showing how the pole angle and Q-value evolved step by step
-
-    > **Try this:** Compare an early episode (short, agent falls fast) with a late
-    > episode (long, agent balances). Notice how late episodes trace extended paths
-    > through the "safe" region of the embedding.
-    """)
-    return
-
-
-@app.cell
-def _(cartpole_proj, mo):
-    """Episode selector slider."""
-    if cartpole_proj is not None:
-        _max_ep = int(cartpole_proj["episode"].max())
-        # Pick a late episode as default (likely longer and more interesting)
-        _default = max(0, _max_ep - 5)
-        episode_slider = mo.ui.slider(
-            start=0,
-            stop=_max_ep,
-            step=1,
-            value=_default,
-            label="Episode number",
-        )
-    else:
-        episode_slider = None
-    return (episode_slider,)
-
-
-@app.cell
-def _(episode_slider, mo):
-    if episode_slider is not None:
-        mo.hstack(
-            [
-                mo.md("**Select an episode:**"),
-                episode_slider,
-                mo.md(f"Episode **{episode_slider.value}**"),
-            ]
-        )
-    return
-
-
-@app.cell
-def _(
-    EmbeddingAtlasWidget,
-    cartpole_proj,
-    episode_slider,
-    mo,
-    plot_episode_timeline,
-    plt,
-):
-    """Show episode trajectory widget and timeline side by side."""
-    if cartpole_proj is not None and episode_slider is not None:
-        _ep_num = episode_slider.value
-        _ep_df = cartpole_proj[cartpole_proj["episode"] == _ep_num].copy()
-
-        if len(_ep_df) > 0:
-            # Episode info
-            _ep_info = mo.md(
-                f"**Episode {_ep_num}:** {len(_ep_df)} steps"
-                f" | outcome: **{_ep_df['episode_outcome'].iloc[0]}**"
-                f" | skill: **{_ep_df['skill_level'].iloc[0]}**"
-                f" | training stage: **{_ep_df['training_stage'].iloc[0]}**"
-                f" | mean Q: **{_ep_df['q_value'].mean():.2f}**"
-            )
-
-            # Widget showing just this episode's points
-            _ep_widget = EmbeddingAtlasWidget(
-                _ep_df,
-                x="projection_x",
-                y="projection_y",
-                neighbors="neighbors",
-                text="state_description",
-                show_charts=False,
-                show_table=True,
-                point_size=4.0,
-            )
-
-            # Timeline plot
-            _fig = plot_episode_timeline(
-                cartpole_proj,
-                _ep_num,
-                state_components=["pole_angle", "cart_position"],
-                q_col="q_value",
-                action_col="action_name",
-            )
-
-            mo.vstack(
-                [
-                    _ep_info,
-                    mo.hstack([_ep_widget, mo.as_html(_fig)]),
-                ]
-            )
-            plt.close(_fig)
-        else:
-            mo.md(f"Episode {_ep_num} has no data.")
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ---
-    ## Section 3 · LunarLander DQN — Dense Rewards and Rich State
+    ## Section 2· LunarLander DQN — Dense Rewards and Rich State
 
     LunarLander provides **dense reward shaping**: the agent earns continuous rewards
     for approaching the landing pad and penalties for using fuel, plus large bonuses
@@ -537,13 +356,25 @@ def _(mo):
     | `reward_category` | high_penalty / small_penalty / small_reward / high_reward |
     | `landing_outcome` | landed / crashed / in_flight (terminal states only) |
     | `speed` | sqrt(vel_x^2 + vel_y^2) — how fast the lander is moving |
+
+
+    ### Environment Inputs
+
+    1. x position
+    2. y position
+    3. x velocity
+    4. y velocity
+    5. lander angle
+    6. angular velocity
+    7. left leg contact (0 or 1)
+    8. right leg contact (0 or 1)
     """)
     return
 
 
 @app.cell(hide_code=True)
 def _(DQN, gym, pd):
-    """Train LunarLander DQN for 100k steps and extract replay buffer."""
+    """Train LunarLander DQN for 200k steps and extract replay buffer."""
     LUNAR_STEPS = 200_000
     LUNAR_BUFFER = LUNAR_STEPS + 2000
 
@@ -555,7 +386,7 @@ def _(DQN, gym, pd):
         buffer_size=LUNAR_BUFFER,
         learning_starts=2000,
         batch_size=128,
-        gamma=0.99,
+        gamma=0.99, # discount factor
         exploration_fraction=0.3,
         exploration_initial_eps=1.0,
         exploration_final_eps=0.05,
@@ -563,7 +394,7 @@ def _(DQN, gym, pd):
         verbose=0,
         seed=42,
     )
-    lunar_model.learn(total_timesteps=LUNAR_STEPS)
+    lunar_model.learn(total_timesteps=LUNAR_STEPS, progress_bar=True)
     lunar_env.close()
 
     _buf = lunar_model.replay_buffer
@@ -580,6 +411,7 @@ def _(DQN, gym, pd):
         }
         for i in range(_n)
     ]
+    print(_rows[0])
     lunar_df = pd.DataFrame(_rows)
     print(f"Extracted {len(lunar_df)} LunarLander transitions.")
     return lunar_df, lunar_model
@@ -691,7 +523,11 @@ def _(
 
 
 @app.cell(hide_code=True)
-async def _(async_compute_projection, lunar_enriched, prepare_rl_data_for_projection):
+async def _(
+    async_compute_projection,
+    lunar_enriched,
+    prepare_rl_data_for_projection,
+):
     """UMAP projection of LunarLander (state, action) vectors."""
     lunar_proj = lunar_enriched.copy()
     lunar_proj, _vec = prepare_rl_data_for_projection(
@@ -742,10 +578,23 @@ def _(EmbeddingAtlasWidget, lunar_proj):
         y="projection_y",
         neighbors="neighbors",
         text="state_description",
-        labels="automatic",
+        labels="disabled",
         show_charts=True,
         show_table=True,
         point_size=2.0,
+        trajectories={
+            "group_by": "episode",
+            "order_by": "step_in_episode",
+            "color_by": "episode",
+            "colors": {
+                "landed": "#16a34a",
+                "crashed": "#dc2626",
+                "in_flight": "#64748b",
+            },
+            "max_groups": 50,
+            "width": 1,
+            "opacity": 0.020,
+        },
     )
     return (lunar_widget,)
 

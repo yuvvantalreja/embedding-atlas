@@ -16,6 +16,7 @@
     totalCount: number | null;
     maxDensity: number | null;
     labels?: Label[] | null;
+    trajectories?: Trajectory[] | null;
     queryClusterLabels: ((clusters: Rectangle[][]) => Promise<(LabelContent | null)[]>) | null;
     tooltip: Selection | null;
     selection: Selection[] | null;
@@ -118,8 +119,34 @@
   import { layoutLabels, type LabelWithPlacement } from "./labels.js";
   import { simplifyPolygon } from "./simplify_polygon.js";
   import { resolveTheme, type ThemeConfig } from "./theme.js";
-  import type { Cache, CustomComponent, Label, LabelContent, OverlayProxy } from "./types.js";
+  import type { Cache, CustomComponent, Label, LabelContent, OverlayProxy, Trajectory } from "./types.js";
   import { findClusters } from "./worker/index.js";
+
+  function trajectoryDefaultColor(id: string | number | undefined, index: number, palette: string[]): string {
+    if (palette.length == 0) {
+      return "#888";
+    }
+    let key = id != null ? String(id) : String(index);
+    let hash = 0;
+    for (let i = 0; i < key.length; i++) {
+      hash = (hash * 31 + key.charCodeAt(i)) | 0;
+    }
+    return palette[Math.abs(hash) % palette.length];
+  }
+
+  function trajectoryToPolylinePoints(
+    points: { x: number; y: number }[],
+    pointLocation: (x: number, y: number) => { x: number; y: number },
+  ): string {
+    let parts: string[] = [];
+    for (let p of points) {
+      let loc = pointLocation(p.x, p.y);
+      if (isFinite(loc.x) && isFinite(loc.y)) {
+        parts.push(`${loc.x},${loc.y}`);
+      }
+    }
+    return parts.join(" ");
+  }
 
   interface SelectionBase {
     x: number;
@@ -142,6 +169,7 @@
     totalCount = null,
     maxDensity = null,
     labels = null,
+    trajectories = null,
     queryClusterLabels = null,
     tooltip = null,
     selection = null,
@@ -740,6 +768,25 @@
       hover: onHover,
     }}
   >
+    <!-- Trajectories (rendered below labels/selection so labels stay readable) -->
+    {#if trajectories != null && trajectories.length > 0 && renderer != null}
+      <g style:pointer-events="none">
+        {#each trajectories as trajectory, index (trajectory.id ?? index)}
+          {@const pts = trajectoryToPolylinePoints(trajectory.points, pointLocation)}
+          {#if pts.length > 0}
+            <polyline
+              points={pts}
+              fill="none"
+              stroke={trajectory.color ?? trajectoryDefaultColor(trajectory.id, index, resolvedCategoryColors)}
+              stroke-width={trajectory.width ?? 1.5}
+              stroke-opacity={trajectory.opacity ?? 0.6}
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          {/if}
+        {/each}
+      </g>
+    {/if}
     <!-- Tooltip point -->
     {#if tooltip != null && renderer != null}
       {@const { x, y } = pointLocation(tooltip.x, tooltip.y)}

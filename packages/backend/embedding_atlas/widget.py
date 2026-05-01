@@ -20,6 +20,92 @@ except ImportError:
     raise
 
 
+def _quote_ident(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _compute_trajectories_from_spec(
+    connection: duckdb.DuckDBPyConnection,
+    table: str,
+    x_col: str | None,
+    y_col: str | None,
+    spec: dict,
+) -> list[dict]:
+    """Aggregate the data table into a list of trajectory dicts for the embedding view.
+
+    Each resulting dict has: ``points`` (list of {x, y}), ``id`` (group value),
+    and optionally ``color``, ``width``, ``opacity``.
+    """
+    group_by = spec.get("group_by")
+    order_by = spec.get("order_by")
+    if group_by is None or order_by is None:
+        raise ValueError(
+            "trajectories spec requires both 'group_by' and 'order_by' columns"
+        )
+    if x_col is None or y_col is None:
+        raise ValueError(
+            "trajectories require x and y projection columns to be specified"
+        )
+
+    max_groups = int(spec.get("max_groups", 50))
+    width = spec.get("width")
+    opacity = spec.get("opacity")
+    color_by = spec.get("color_by")
+    colors = spec.get("colors") or {}
+
+    select_color = (
+        f", any_value({_quote_ident(color_by)}) AS color_val" if color_by else ""
+    )
+
+    sql = f"""
+        SELECT
+            {_quote_ident(group_by)} AS group_id,
+            list({_quote_ident(x_col)} ORDER BY {_quote_ident(order_by)}) AS xs,
+            list({_quote_ident(y_col)} ORDER BY {_quote_ident(order_by)}) AS ys,
+            count(*) AS n
+            {select_color}
+        FROM {table}
+        GROUP BY {_quote_ident(group_by)}
+        HAVING n >= 2
+        ORDER BY n DESC
+        LIMIT {max_groups}
+    """
+    rows = connection.sql(sql).fetchall()
+
+    cols = [desc[0] for desc in connection.sql(sql).description]
+    group_idx = cols.index("group_id")
+    xs_idx = cols.index("xs")
+    ys_idx = cols.index("ys")
+    color_idx = cols.index("color_val") if color_by else None
+
+    result: list[dict] = []
+    for row in rows:
+        group_id = row[group_idx]
+        xs = row[xs_idx]
+        ys = row[ys_idx]
+        if xs is None or ys is None or len(xs) < 2:
+            continue
+        traj: dict = {
+            "id": group_id,
+            "points": [
+                {"x": float(xv), "y": float(yv)}
+                for xv, yv in zip(xs, ys)
+                if xv is not None and yv is not None
+            ],
+        }
+        if width is not None:
+            traj["width"] = float(width)
+        if opacity is not None:
+            traj["opacity"] = float(opacity)
+        if color_idx is not None:
+            color_value = row[color_idx]
+            mapped = colors.get(color_value) if color_value is not None else None
+            if mapped is not None:
+                traj["color"] = str(mapped)
+        result.append(traj)
+    return result
+
+
 class EmbeddingAtlasWidget(anywidget.AnyWidget):
     """An Embedding Atlas widget in notebooks"""
 
@@ -110,10 +196,6 @@ class EmbeddingAtlasWidget(anywidget.AnyWidget):
         table_name = "embedding_atlas"
         row_id_column = options.get("row_id", "__row_index__")
 
-        props = make_embedding_atlas_props(
-            **(options | {"table": table_name, "row_id": row_id_column}),
-        )
-
         if connection is None:
             connection = duckdb.connect()
 
@@ -129,6 +211,21 @@ class EmbeddingAtlasWidget(anywidget.AnyWidget):
                 ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {row_id_column} INTEGER DEFAULT nextval('row_id_sequence');
                 """
             )
+
+        trajectories = options.get("trajectories")
+        if isinstance(trajectories, dict):
+            resolved = _compute_trajectories_from_spec(
+                connection,
+                table_name,
+                x_col=options.get("x"),
+                y_col=options.get("y"),
+                spec=trajectories,
+            )
+            options = {**options, "trajectories": resolved}
+
+        props = make_embedding_atlas_props(
+            **(options | {"table": table_name, "row_id": row_id_column}),
+        )
 
         super().__init__()
 

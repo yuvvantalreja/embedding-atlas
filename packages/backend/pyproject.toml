@@ -32,6 +32,10 @@ dependencies = [
   "websockets >= 15.0.1",
   "cryptography >= 35.0.0",
   "narwhals >= 2.0.0",
+  "torch>=2.10.0",
+  "torchvision>=0.25.0",
+  "swig>=4.4.1",
+  "gymnasium[box2d]>=1.2.3",
 ]
 
 [project.scripts]

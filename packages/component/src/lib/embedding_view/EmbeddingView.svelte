@@ -18,6 +18,7 @@
     config = null,
     viewportState = null,
     labels = null,
+    trajectories = null,
     customTooltip = null,
     customOverlay = null,
     querySelection = null,
@@ -72,6 +73,7 @@
   querySelection={querySelection}
   queryClusterLabels={queryClusterLabels}
   labels={labels}
+  trajectories={trajectories}
   customTooltip={customTooltip}
   customOverlay={customOverlay}
   tooltip={tooltip}

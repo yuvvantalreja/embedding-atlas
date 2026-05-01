@@ -43,6 +43,17 @@ class EmbeddingAtlasOptions(TypedDict, total=False):
         control the zoom level where the label appears, and `priority` for the label's priority.
         Higher priority labels have a better chance to appear when multiple labels overlap.
 
+    trajectories:
+        Trajectories to overlay on the embedding view. Each trajectory is drawn as a
+        polyline connecting its points in order. Two forms are accepted:
+
+        - A column-based spec dict with keys ``group_by`` (column identifying each
+          trajectory), ``order_by`` (column determining step order within a trajectory),
+          and optional ``max_groups`` (cap on number of trajectories drawn; default 50),
+          ``width``, ``opacity``, and ``color_by`` (column whose value selects the color).
+        - An explicit list of trajectory dicts ``{"points": [{"x": ..., "y": ...}, ...],
+          "id": ..., "color": ..., "width": ..., "opacity": ...}``.
+
     stop_words:
         Stop words for automatic label generation.
 
@@ -87,6 +98,7 @@ class EmbeddingAtlasOptions(TypedDict, total=False):
     point_size: float | None
 
     labels: list[dict] | None
+    trajectories: dict | list[dict] | None
     stop_words: list[str] | None
 
     color: str | None
@@ -142,6 +154,7 @@ def make_embedding_atlas_props(**options: Unpack[EmbeddingAtlasOptions]) -> dict
     # Embedding View
     set_prop("embeddingViewConfig.pointSize", options.get("point_size"))
     set_prop("embeddingViewLabels", options.get("labels"))
+    set_prop("embeddingViewTrajectories", options.get("trajectories"))
     set_prop("embeddingViewConfig.autoLabelStopWords", options.get("stop_words"))
 
     # Initial state
