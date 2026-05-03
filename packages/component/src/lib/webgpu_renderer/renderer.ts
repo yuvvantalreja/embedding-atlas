@@ -10,7 +10,13 @@ import {
   type Matrix3,
   type Vector4,
 } from "../matrix.js";
-import type { DensityMap, EmbeddingRenderer, EmbeddingRendererProps, RenderMode } from "../renderer_interface.js";
+import type {
+  DensityMap,
+  EmbeddingRenderer,
+  EmbeddingRendererProps,
+  RenderMode,
+  RendererTrajectory,
+} from "../renderer_interface.js";
 import type { ViewportState } from "../utils.js";
 import { Viewport } from "../viewport_utils.js";
 import { makeModuleUniforms, type ModuleUniforms } from "./uniforms.js";
@@ -21,6 +27,11 @@ import { makeBindGroups } from "./bind_groups.js";
 import { makeDownsampleCommand, makeDownsampleResources, type DownsampleConfig } from "./downsample.js";
 import { makeDrawDensityMapCommand } from "./draw_density_map.js";
 import { makeDrawPointsCommand, makeDrawPointsDownsampledCommand } from "./draw_points.js";
+import {
+  buildTrajectorySegmentData,
+  makeDrawTrajectoriesCommand,
+  makeTrajectoryResources,
+} from "./draw_trajectories.js";
 import { makeGammaCorrectionCommand } from "./gamma_correction.js";
 import { makeGaussianBlurCommand } from "./gaussian_blur.js";
 import { kdeConfig } from "./kde_config.js";
@@ -73,6 +84,9 @@ export class EmbeddingRendererWebGPU implements EmbeddingRenderer {
 
       downsampleMaxPoints: 4000000,
       downsampleDensityWeight: 5,
+
+      trajectories: null,
+      pixelRatio: 1,
     };
 
     this.viewport = new Viewport({ x: 0, y: 0, scale: 1 }, width, height);
@@ -94,6 +108,7 @@ export class EmbeddingRendererWebGPU implements EmbeddingRenderer {
       densityBandwidth: df.value(this.props.densityBandwidth),
       downsampleMaxPoints: df.value(this.props.downsampleMaxPoints),
       downsampleDensityWeight: df.value(this.props.downsampleDensityWeight),
+      trajectorySegments: df.value<Float32Array<ArrayBuffer>>(new Float32Array(new ArrayBuffer(0))),
     };
     this.device = df.value(device);
     this.dataBuffers = makeDataBuffers(df, this.device, this.renderInputs);
@@ -112,13 +127,24 @@ export class EmbeddingRendererWebGPU implements EmbeddingRenderer {
 
   setProps(newProps: Partial<EmbeddingRendererProps>): boolean {
     let needsRender = false;
+    let trajectoriesChanged = false;
     let key: keyof EmbeddingRendererProps;
     for (key in newProps) {
       if (newProps[key] === this.props[key]) {
         continue;
       }
+      if (key === "trajectories" || key === "pixelRatio") {
+        trajectoriesChanged = true;
+      }
       (this.props as any)[key] = newProps[key];
       needsRender = true;
+    }
+    if (trajectoriesChanged) {
+      this.renderInputs.trajectorySegments.value = buildTrajectorySegmentData(
+        this.props.trajectories,
+        this.props.pixelRatio,
+        this.props.gamma,
+      );
     }
     this.viewport.update(
       { x: this.props.viewportX, y: this.props.viewportY, scale: this.props.viewportScale },
@@ -201,6 +227,7 @@ export interface RenderInputs {
   height: ValueNode<number>;
   downsampleMaxPoints: ValueNode<number | null>;
   downsampleDensityWeight: ValueNode<number>;
+  trajectorySegments: ValueNode<Float32Array<ArrayBuffer>>;
 }
 
 export interface DataBuffers {
@@ -327,6 +354,18 @@ function makeRenderCommand(
   let gammaCorrection = makeGammaCorrectionCommand(df, device, module, format, bindGroups);
   let gaussianBlur = makeGaussianBlurCommand(df, device, module, bindGroups, fbWidth, fbHeight, inputs.categoryCount);
 
+  // Trajectory rendering: per-segment storage buffer driving an instanced quad pass.
+  let trajectoryResources = makeTrajectoryResources(df, device, inputs.trajectorySegments);
+  let drawTrajectories = makeDrawTrajectoriesCommand(
+    df,
+    device,
+    module,
+    df.derive([bindGroups.layouts], (l) => l.group0),
+    trajectoryResources,
+    bindGroups.group0,
+    auxiliaryResources,
+  );
+
   // Create downsampling command
   let layoutsNode = df.derive([bindGroups.layouts], (layouts) => layouts);
   let downsample = makeDownsampleCommand(
@@ -374,6 +413,7 @@ function makeRenderCommand(
       gaussianBlur,
       drawDensityMap,
       downsample,
+      drawTrajectories,
       kde_coeffs,
     ],
     (
@@ -393,6 +433,7 @@ function makeRenderCommand(
       gaussianBlur,
       drawDensityMap,
       downsample,
+      drawTrajectories,
       kde_coeffs,
     ) =>
       (props, textureView) => {
@@ -474,6 +515,11 @@ function makeRenderCommand(
             }
           }
         }
+
+        // Trajectories overlay on top of points/density and blend additively
+        // into the same color/alpha textures, so gamma_correction composites
+        // them with the rest of the scene in one pass.
+        drawTrajectories(encoder);
 
         gammaCorrection(encoder, textureView);
         device.queue.submit([encoder.finish()]);

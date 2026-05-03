@@ -71,6 +71,12 @@ export interface EmbeddingAtlasProps {
    *  points in data coordinates to be connected with a polyline. */
   embeddingViewTrajectories?: Trajectory[] | null;
 
+  /** Column name whose value matches `Trajectory.id`. When set, plain-clicking
+   *  a point focuses the trajectory with the matching id (other trajectories
+   *  dim, focused trajectory's points get rings). Click empty space or press
+   *  Escape to clear the focus. */
+  embeddingViewTrajectoryIdField?: string | null;
+
   /** Theme config for charts. */
   chartTheme?: ChartThemeConfig | null;
 

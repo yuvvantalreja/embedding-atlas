@@ -19,6 +19,8 @@
     viewportState = null,
     labels = null,
     trajectories = null,
+    trajectoryIdField = null,
+    focusedTrajectoryId = null,
     customTooltip = null,
     customOverlay = null,
     querySelection = null,
@@ -27,6 +29,7 @@
     onTooltip = null,
     onSelection = null,
     onRangeSelection = null,
+    onFocusedTrajectoryId = null,
     cache = null,
   }: EmbeddingViewProps = $props();
 
@@ -86,6 +89,9 @@
   queryClusterLabels={queryClusterLabels}
   labels={labels}
   trajectories={trajectories}
+  trajectoryIdField={trajectoryIdField}
+  focusedTrajectoryId={focusedTrajectoryId}
+  onFocusedTrajectoryId={onFocusedTrajectoryId}
   customTooltip={customTooltip}
   customOverlay={customOverlay}
   tooltip={tooltip}

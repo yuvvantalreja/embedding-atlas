@@ -104,6 +104,9 @@ export interface ChartContext {
 
   /** Trajectories to overlay on the embedding view. */
   embeddingViewTrajectories?: Trajectory[] | null;
+
+  /** Column name whose value matches `Trajectory.id` for click-to-focus. */
+  embeddingViewTrajectoryIdField?: string | null;
 }
 
 /** Props passed into a chart view. */

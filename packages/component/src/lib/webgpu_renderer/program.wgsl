@@ -69,6 +69,17 @@ struct FragmentOutput {
 // (read-only access required by WebGPU for vertex shaders)
 @group(2) @binding(0) var<storage, read> point_data_read: array<f32>; // same as point_data above
 
+// Trajectory segment data — one entry per polyline segment.
+// Declared on group(1) binding(3) which doesn't conflict with the existing
+// x/y/category buffers (bindings 0/1/2). Trajectory pipelines use a separate
+// bind group layout for group 1 that exposes only binding 3.
+struct TrajectorySegment {
+  endpoints: vec4<f32>, // (x0, y0, x1, y1) in data coordinates
+  color: vec4<f32>,     // linear-space RGB (already gamma-encoded), A = stroke opacity
+  params: vec4<f32>,    // (width_in_framebuffer_pixels, _, _, _)
+}
+@group(1) @binding(3) var<storage, read> trajectory_segments: array<TrajectorySegment>;
+
 fn get_point(index: u32) -> PointData {
   var result: PointData;
   result.position = vec3(x_buffer[index], y_buffer[index], 1.0);
@@ -506,6 +517,92 @@ fn downsample_density_sample(@builtin(global_invocation_id) id: vec3<u32>) {
 // =====================================================
 // Draw points with downsampling
 // =====================================================
+
+// =====================================================
+// Draw Trajectories
+// =====================================================
+// Each trajectory polyline is decomposed CPU-side into independent line
+// segments. Every segment is rendered as one instance of a triangle-strip
+// quad oriented along the segment direction, expanded perpendicular by
+// half_width + 1px AA pad, and extended along its axis by 1px so the cap
+// fragments still get coverage. The fragment shader computes the signed
+// distance to the segment in framebuffer pixels and produces an
+// anti-aliased mask via smoothstep.
+
+struct TrajectoryVertexOutput {
+  @builtin(position) position: vec4<f32>,
+  @location(0) p_px: vec2<f32>,
+  @location(1) p0_px: vec2<f32>,
+  @location(2) p1_px: vec2<f32>,
+  @location(3) color: vec4<f32>,
+  @location(4) half_width_px: f32,
+}
+
+@vertex
+fn trajectory_vs(
+  @builtin(instance_index) instance: u32,
+  @builtin(vertex_index) part: u32,
+) -> TrajectoryVertexOutput {
+  let seg = trajectory_segments[instance];
+  let fb = vec2<f32>(f32(uniforms.framebuffer_width), f32(uniforms.framebuffer_height));
+
+  let p0_clip = uniforms.matrix * vec3<f32>(seg.endpoints.x, seg.endpoints.y, 1.0);
+  let p1_clip = uniforms.matrix * vec3<f32>(seg.endpoints.z, seg.endpoints.w, 1.0);
+
+  // Convert clip-space [-1, 1] to framebuffer pixel coordinates.
+  let p0_px = (p0_clip.xy * 0.5 + 0.5) * fb;
+  let p1_px = (p1_clip.xy * 0.5 + 0.5) * fb;
+
+  let delta = p1_px - p0_px;
+  let len = max(length(delta), 1e-4);
+  let dir = delta / len;
+  let perp = vec2<f32>(-dir.y, dir.x);
+
+  let half_width = max(seg.params.x * 0.5, 0.5);
+  let half_pad = half_width + 1.0; // 1px AA padding around the stroke
+  let cap_pad = 1.0;               // small extension along axis to AA endpoints
+
+  // Quad layout (triangle-strip vertex_index 0..3):
+  //   0 = p0 - perp - axis, 1 = p1 - perp + axis,
+  //   2 = p0 + perp - axis, 3 = p1 + perp + axis
+  let along_t = f32(part & 1u);            // 0 at p0 side, 1 at p1 side
+  let across_s = f32((part >> 1u) & 1u) * 2.0 - 1.0; // -1 / +1
+  let axis_s = along_t * 2.0 - 1.0;        // -1 / +1
+
+  let endpoint_px = mix(p0_px, p1_px, along_t);
+  let pos_px = endpoint_px + dir * (axis_s * cap_pad) + perp * (across_s * half_pad);
+
+  // Back to clip-space.
+  let pos_clip = (pos_px / fb) * 2.0 - vec2<f32>(1.0, 1.0);
+
+  var out: TrajectoryVertexOutput;
+  out.position = vec4<f32>(pos_clip, 0.0, 1.0);
+  out.p_px = pos_px;
+  out.p0_px = p0_px;
+  out.p1_px = p1_px;
+  out.color = seg.color;
+  out.half_width_px = half_width;
+  return out;
+}
+
+@fragment
+fn trajectory_fs(in: TrajectoryVertexOutput) -> FragmentOutput {
+  let pa = in.p_px - in.p0_px;
+  let ba = in.p1_px - in.p0_px;
+  let denom = max(dot(ba, ba), 1e-6);
+  let h = clamp(dot(pa, ba) / denom, 0.0, 1.0);
+  let d = length(pa - ba * h);
+
+  // Anti-aliased coverage in [0, 1] for a stroke of half_width_px.
+  let aa = 1.0 - smoothstep(in.half_width_px - 0.5, in.half_width_px + 0.5, d);
+  let alpha = clamp(aa * in.color.a, 0.0, 1.0);
+
+  var out: FragmentOutput;
+  // Pre-multiplied color, matching points_fs output convention.
+  out.color = vec4<f32>(in.color.rgb * alpha, alpha);
+  out.log1malpha = log(max(1e-6, 1.0 - alpha));
+  return out;
+}
 
 @vertex
 fn points_downsampled_vs(

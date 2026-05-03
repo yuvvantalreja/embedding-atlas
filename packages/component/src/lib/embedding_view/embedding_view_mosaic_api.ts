@@ -77,6 +77,17 @@ export interface EmbeddingViewMosaicProps {
    *  (e.g., RL episodes) through the embedding. */
   trajectories?: Trajectory[] | null;
 
+  /** Column name whose value matches `Trajectory.id`. When set, the column is
+   *  automatically included in the data point query, and plain-clicking a
+   *  point focuses the trajectory with the matching id (other trajectories
+   *  dim, focused trajectory is emphasized and its points get rings). Click
+   *  on empty space or press Escape to clear the focus. */
+  trajectoryIdField?: string | null;
+
+  /** Currently focused trajectory id. `null` means no focus.
+   *  Use `onFocusedTrajectoryId` to listen to focus changes. */
+  focusedTrajectoryId?: string | number | null;
+
   /** The width of the view. */
   width?: number | null;
 
@@ -137,6 +148,10 @@ export interface EmbeddingViewMosaicProps {
 
   /** A callback for when `rangeSelection` changes. */
   onRangeSelection?: ((value: Rectangle | Point[] | null) => void) | null;
+
+  /** A callback for when the focused trajectory id changes. `null` means
+   *  the focus was cleared. */
+  onFocusedTrajectoryId?: ((value: string | number | null) => void) | null;
 
   /** A custom renderer to draw the tooltip content. */
   customTooltip?: CustomComponent<HTMLDivElement, { tooltip: DataPoint }> | null;

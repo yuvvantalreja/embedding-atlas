@@ -4,6 +4,20 @@ import type { Point, ViewportState } from "./utils.js";
 
 export type RenderMode = "points" | "density";
 
+/**
+ * A trajectory ready for rendering: ordered points in data coordinates with
+ * a resolved color in linear sRGB, stroke width in CSS pixels, and opacity.
+ *
+ * The view layer is responsible for resolving the user-facing `Trajectory`
+ * (CSS color string, optional defaults) into this concrete renderer type.
+ */
+export interface RendererTrajectory {
+  points: { x: number; y: number }[];
+  color: { r: number; g: number; b: number };
+  width: number;
+  opacity: number;
+}
+
 export interface EmbeddingRendererProps {
   mode: RenderMode;
   colorScheme: "light" | "dark";
@@ -37,6 +51,11 @@ export interface EmbeddingRendererProps {
   downsampleMaxPoints: number | null;
   /** Density weight for downsampling (0-10). Default: 5 */
   downsampleDensityWeight: number;
+
+  /** Optional polylines to overlay on top of points/density. */
+  trajectories: RendererTrajectory[] | null;
+  /** Pixel ratio used to convert CSS-pixel widths to framebuffer pixels. */
+  pixelRatio: number;
 }
 
 export interface DensityMap {

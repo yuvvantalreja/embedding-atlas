@@ -54,6 +54,14 @@ class EmbeddingAtlasOptions(TypedDict, total=False):
         - An explicit list of trajectory dicts ``{"points": [{"x": ..., "y": ...}, ...],
           "id": ..., "color": ..., "width": ..., "opacity": ...}``.
 
+    trajectory_id_field:
+        Column name whose value matches each trajectory's id. When set, plain-clicking
+        a point in the embedding view focuses the trajectory the point belongs to —
+        the focused polyline is emphasized, every other trajectory is dimmed, and the
+        focused trajectory's points get rings. Click empty space or press Escape to
+        clear the focus. Typically this is the same column used as ``group_by`` in
+        the trajectories spec.
+
     stop_words:
         Stop words for automatic label generation.
 
@@ -99,6 +107,7 @@ class EmbeddingAtlasOptions(TypedDict, total=False):
 
     labels: list[dict] | None
     trajectories: dict | list[dict] | None
+    trajectory_id_field: str | None
     stop_words: list[str] | None
 
     color: str | None
@@ -155,6 +164,7 @@ def make_embedding_atlas_props(**options: Unpack[EmbeddingAtlasOptions]) -> dict
     set_prop("embeddingViewConfig.pointSize", options.get("point_size"))
     set_prop("embeddingViewLabels", options.get("labels"))
     set_prop("embeddingViewTrajectories", options.get("trajectories"))
+    set_prop("embeddingViewTrajectoryIdField", options.get("trajectory_id_field"))
     set_prop("embeddingViewConfig.autoLabelStopWords", options.get("stop_words"))
 
     # Initial state

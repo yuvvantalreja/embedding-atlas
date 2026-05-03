@@ -64,6 +64,11 @@ export class EmbeddingRendererWebGL2 implements EmbeddingRenderer {
 
       downsampleMaxPoints: 4000000,
       downsampleDensityWeight: 5,
+
+      // Trajectories are not yet implemented in the WebGL2 fallback —
+      // EmbeddingViewImpl renders them as SVG when the WebGL2 renderer is in use.
+      trajectories: null,
+      pixelRatio: 1,
     };
 
     this.viewport = new Viewport({ x: 0, y: 0, scale: 1 }, width, height);
