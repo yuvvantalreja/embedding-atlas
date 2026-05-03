@@ -40,4 +40,22 @@ export interface EmbeddingViewConfig {
    * Higher values mean more aggressive culling in dense areas.
    * Default: 5 */
   downsampleDensityWeight?: number | null;
+
+  /** When a trajectory is focused, multiply its width by this factor.
+   * Default: 1.8 */
+  focusedTrajectoryWidthScale?: number | null;
+
+  /** When a trajectory is focused, set its opacity to this value.
+   * Default: 1.0 */
+  focusedTrajectoryOpacity?: number | null;
+
+  /** When a trajectory is focused, multiply every other trajectory's opacity
+   * by this factor.
+   * Default: 0.3 */
+  nonFocusedTrajectoryOpacityScale?: number | null;
+
+  /** Extra ring radius (CSS pixels) drawn at each point of a focused
+   * trajectory, on top of the rendered point size.
+   * Default: 1 */
+  focusedPointRingExtraRadius?: number | null;
 }

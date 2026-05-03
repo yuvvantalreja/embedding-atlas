@@ -35,6 +35,17 @@ export interface EmbeddingViewProps {
    *  (e.g., RL episodes) through the embedding. */
   trajectories?: Trajectory[] | null;
 
+  /** Field on `DataPoint.fields` whose value should match `Trajectory.id`.
+   *  When set, plain-clicking a point focuses the trajectory whose id matches
+   *  that field's value: the focused polyline is emphasized, every other
+   *  trajectory is dimmed, and the focused trajectory's points get rings.
+   *  Click on empty space or press Escape to clear the focus. */
+  trajectoryIdField?: string | null;
+
+  /** Currently focused trajectory id. `null` means no focus.
+   *  Use `onFocusedTrajectoryId` to listen to focus changes. */
+  focusedTrajectoryId?: string | number | null;
+
   /** The width of the view. */
   width?: number | null;
 
@@ -83,6 +94,10 @@ export interface EmbeddingViewProps {
 
   /** A callback for when `rangeSelection` changes. */
   onRangeSelection?: ((value: Rectangle | Point[] | null) => void) | null;
+
+  /** A callback for when the focused trajectory id changes. `null` means
+   *  the focus was cleared. */
+  onFocusedTrajectoryId?: ((value: string | number | null) => void) | null;
 
   /** An async function that returns a data point near the given (x, y) location.
    *  The `unitDistance` parameter is the distance of a single pixel in data domain.

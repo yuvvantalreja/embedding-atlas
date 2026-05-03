@@ -54,6 +54,7 @@
     embeddingViewConfig = null,
     embeddingViewLabels = null,
     embeddingViewTrajectories = null,
+    embeddingViewTrajectoryIdField = null,
     chartTheme,
     colorScheme: colorSchemeProp,
     onExportApplication,
@@ -314,6 +315,7 @@
     embeddingViewConfig: embeddingViewConfig,
     embeddingViewLabels: embeddingViewLabels,
     embeddingViewTrajectories: embeddingViewTrajectories,
+    embeddingViewTrajectoryIdField: embeddingViewTrajectoryIdField,
   };
 
   let charts = $state.raw<Record<string, any>>({});

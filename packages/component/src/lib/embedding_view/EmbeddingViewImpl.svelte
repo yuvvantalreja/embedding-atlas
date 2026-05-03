@@ -17,6 +17,8 @@
     maxDensity: number | null;
     labels?: Label[] | null;
     trajectories?: Trajectory[] | null;
+    trajectoryIdField?: string | null;
+    focusedTrajectoryId?: string | number | null;
     queryClusterLabels: ((clusters: Rectangle[][]) => Promise<(LabelContent | null)[]>) | null;
     tooltip: Selection | null;
     selection: Selection[] | null;
@@ -30,6 +32,7 @@
     onTooltip: ((value: Selection | null) => void) | null;
     onSelection: ((value: Selection[] | null) => void) | null;
     onRangeSelection: ((value: Rectangle | Point[] | null) => void) | null;
+    onFocusedTrajectoryId?: ((value: string | number | null) => void) | null;
     cache: Cache | null;
   }
 
@@ -99,8 +102,8 @@
   import StatusBar from "./StatusBar.svelte";
   import TooltipContainer from "./TooltipContainer.svelte";
 
-  import { defaultCategoryColors } from "../colors.js";
-  import type { EmbeddingRenderer } from "../renderer_interface.js";
+  import { defaultCategoryColors, parseColorNormalizedRgb } from "../colors.js";
+  import type { EmbeddingRenderer, RendererTrajectory } from "../renderer_interface.js";
   import {
     cacheKeyForObject,
     deepEquals,
@@ -148,6 +151,38 @@
     return parts.join(" ");
   }
 
+  /**
+   * Resolve user-facing trajectories (with CSS colors and optional defaults)
+   * into the shape the GPU renderer expects: linear sRGB color components,
+   * width in CSS pixels, and concrete opacity.
+   */
+  function resolveRendererTrajectories(
+    trajectories: Trajectory[] | null,
+    palette: string[],
+  ): RendererTrajectory[] | null {
+    if (trajectories == null || trajectories.length == 0) {
+      return null;
+    }
+    let out: RendererTrajectory[] = [];
+    for (let i = 0; i < trajectories.length; i++) {
+      let t = trajectories[i];
+      if (t.points == null || t.points.length < 2) {
+        continue;
+      }
+      let colorStr = t.color ?? trajectoryDefaultColor(t.id, i, palette);
+      let rgba = parseColorNormalizedRgb(colorStr);
+      let userOpacity = t.opacity ?? 0.6;
+      out.push({
+        points: t.points,
+        color: { r: rgba.r, g: rgba.g, b: rgba.b },
+        // Combine the CSS color's own opacity with the trajectory opacity.
+        opacity: Math.max(0, Math.min(1, rgba.a * userOpacity)),
+        width: t.width ?? 1.5,
+      });
+    }
+    return out.length == 0 ? null : out;
+  }
+
   interface SelectionBase {
     x: number;
     y: number;
@@ -170,6 +205,8 @@
     maxDensity = null,
     labels = null,
     trajectories = null,
+    trajectoryIdField = null,
+    focusedTrajectoryId = null,
     queryClusterLabels = null,
     tooltip = null,
     selection = null,
@@ -183,6 +220,7 @@
     onTooltip = null,
     onSelection = null,
     onRangeSelection = null,
+    onFocusedTrajectoryId = null,
     cache = null,
   }: Props<Selection> = $props();
 
@@ -237,6 +275,14 @@
     onRangeSelection?.(newValue);
   }
 
+  function setFocusedTrajectoryId(newValue: string | number | null) {
+    if (focusedTrajectoryId === newValue) {
+      return;
+    }
+    focusedTrajectoryId = newValue;
+    onFocusedTrajectoryId?.(newValue);
+  }
+
   let clusterLabels: LabelWithPlacement[] = $state([]);
   let statusMessage: string | null = $state(null);
 
@@ -247,6 +293,7 @@
 
   let canvas: HTMLCanvasElement | null = $state(null);
   let renderer: EmbeddingRenderer | null = $state(null);
+  let rendererKind: "webgpu" | "webgl2" | null = $state(null);
   let webGPUPrompt: string | null = $state(null);
 
   let minimumDensity = $derived(config?.minimumDensity ?? 1 / 16);
@@ -255,6 +302,10 @@
   let autoLabelEnabled = $derived(config?.autoLabelEnabled);
   let downsampleMaxPoints = $derived(config?.downsampleMaxPoints ?? 4000000);
   let downsampleDensityWeight = $derived(config?.downsampleDensityWeight ?? 5);
+  let focusedWidthScale = $derived(config?.focusedTrajectoryWidthScale ?? 1.8);
+  let focusedOpacity = $derived(config?.focusedTrajectoryOpacity ?? 1.0);
+  let nonFocusedOpacityScale = $derived(config?.nonFocusedTrajectoryOpacityScale ?? 0.3);
+  let focusedRingExtraRadius = $derived(config?.focusedPointRingExtraRadius ?? 1);
 
   let viewingParams = $derived(
     viewingParameters(
@@ -269,6 +320,78 @@
   );
 
   let pointSize = $derived(viewingParams.pointSize);
+
+  // Apply per-trajectory dim/emphasis when an episode is focused. The focused
+  // trajectory keeps its color, gets a width bump and full opacity; the rest
+  // are multiplicatively dimmed. Order matters for additive blending — the
+  // focused trajectory is pushed last so it draws on top.
+  function applyFocusStyling(
+    base: RendererTrajectory[] | null,
+    focusIndex: number | null,
+    widthScale: number,
+    focusOpacity: number,
+    dimScale: number,
+  ): RendererTrajectory[] | null {
+    if (base == null || base.length == 0) {
+      return base;
+    }
+    if (focusIndex == null) {
+      return base;
+    }
+    let dimmed: RendererTrajectory[] = [];
+    let focused: RendererTrajectory | null = null;
+    for (let i = 0; i < base.length; i++) {
+      let t = base[i];
+      if (i === focusIndex) {
+        focused = {
+          points: t.points,
+          color: t.color,
+          width: t.width * widthScale,
+          opacity: Math.max(0, Math.min(1, focusOpacity)),
+        };
+      } else {
+        dimmed.push({
+          points: t.points,
+          color: t.color,
+          width: t.width,
+          opacity: Math.max(0, Math.min(1, t.opacity * dimScale)),
+        });
+      }
+    }
+    if (focused == null) {
+      return dimmed;
+    }
+    return [...dimmed, focused];
+  }
+
+  // Index of the input trajectory that matches focusedTrajectoryId (or null).
+  // We compute this against the user-facing `trajectories` prop so the index
+  // aligns with both `resolvedRendererTrajectories` and the SVG ring overlay.
+  let focusedTrajectoryIndex = $derived.by<number | null>(() => {
+    if (focusedTrajectoryId == null || trajectories == null) {
+      return null;
+    }
+    for (let i = 0; i < trajectories.length; i++) {
+      if (trajectories[i].id === focusedTrajectoryId) {
+        return i;
+      }
+    }
+    return null;
+  });
+
+  let baseRendererTrajectories = $derived(
+    resolveRendererTrajectories(trajectories ?? null, resolvedCategoryColors),
+  );
+
+  let resolvedRendererTrajectories = $derived(
+    applyFocusStyling(
+      baseRendererTrajectories,
+      focusedTrajectoryIndex,
+      focusedWidthScale,
+      focusedOpacity,
+      nonFocusedOpacityScale,
+    ),
+  );
 
   let needsUpdateLabels = true;
 
@@ -288,6 +411,8 @@
       categoryColors: resolvedCategoryColors,
       downsampleMaxPoints,
       downsampleDensityWeight,
+      trajectories: resolvedRendererTrajectories,
+      pixelRatio,
       ...viewingParams,
     });
 
@@ -341,6 +466,7 @@
       context.getExtension("EXT_float_blend");
       context.getExtension("OES_texture_float_linear");
       renderer = new EmbeddingRendererWebGL2(context, pixelWidth, pixelHeight);
+      rendererKind = "webgl2";
     }
 
     createRenderer();
@@ -400,6 +526,7 @@
       });
 
       renderer = new EmbeddingRendererWebGPU(context, device, format, pixelWidth, pixelHeight);
+      rendererKind = "webgpu";
     }
 
     createRenderer();
@@ -412,6 +539,12 @@
   }
 
   $effect.pre(() => syncViewportState(defaultViewportState));
+
+  function onWindowKeydown(e: KeyboardEvent) {
+    if (e.key === "Escape" && focusedTrajectoryId != null) {
+      setFocusedTrajectoryId(null);
+    }
+  }
 
   onMount(() => {
     if (canvas == null) {
@@ -427,11 +560,15 @@
       render();
       return _toDataURL.apply(canvas, args);
     };
+
+    window.addEventListener("keydown", onWindowKeydown);
   });
 
   onDestroy(() => {
     renderer?.destroy();
     renderer = null;
+    rendererKind = null;
+    window.removeEventListener("keydown", onWindowKeydown);
   });
 
   function localCoordinates(e: { clientX: number; clientY: number }): Point {
@@ -477,6 +614,12 @@
       if (e1.modifiers.shift) {
         mode = e1.modifiers.meta ? "lasso" : "marquee";
       }
+    }
+
+    // Range/lasso selection clears any focused episode so highlight doesn't
+    // linger over a different region the user is selecting. Pan keeps focus.
+    if (mode !== "pan") {
+      setFocusedTrajectoryId(null);
     }
 
     let p1 = localCoordinates(e1);
@@ -545,6 +688,8 @@
       if (newSelection == null) {
         setSelection([]);
         setTooltip(null);
+        // Click on empty space clears any focused episode.
+        setFocusedTrajectoryId(null);
       } else {
         if (pointer.modifiers.shift || pointer.modifiers.ctrl || pointer.modifiers.meta) {
           // Toggle the point from the selection
@@ -561,6 +706,16 @@
         } else {
           setSelection([newSelection]);
           setTooltip(newSelection);
+          // Plain click: focus the trajectory whose id matches the clicked
+          // point's value at `trajectoryIdField`. If no match, leave focus
+          // unchanged so the user's prior pick isn't lost when clicking a
+          // stray point that has no episode field.
+          if (trajectoryIdField != null) {
+            let value = (newSelection as any).fields?.[trajectoryIdField];
+            if (value != null && (typeof value === "string" || typeof value === "number")) {
+              setFocusedTrajectoryId(value);
+            }
+          }
         }
       }
     }
@@ -768,20 +923,56 @@
       hover: onHover,
     }}
   >
-    <!-- Trajectories (rendered below labels/selection so labels stay readable) -->
-    {#if trajectories != null && trajectories.length > 0 && renderer != null}
+    <!-- Trajectories: WebGPU renders them on the canvas (see draw_trajectories.ts).
+         Fall back to SVG polylines only when the WebGL2 renderer is in use.
+         The SVG fallback honours the focused-trajectory dim/emphasis the same
+         way the GPU path does (`applyFocusStyling`). -->
+    {#if trajectories != null && trajectories.length > 0 && renderer != null && rendererKind === "webgl2"}
       <g style:pointer-events="none">
         {#each trajectories as trajectory, index (trajectory.id ?? index)}
           {@const pts = trajectoryToPolylinePoints(trajectory.points, pointLocation)}
+          {@const isFocused = focusedTrajectoryIndex != null && index === focusedTrajectoryIndex}
+          {@const baseWidth = trajectory.width ?? 1.5}
+          {@const baseOpacity = trajectory.opacity ?? 0.6}
+          {@const effWidth = isFocused ? baseWidth * focusedWidthScale : baseWidth}
+          {@const effOpacity = focusedTrajectoryIndex == null
+            ? baseOpacity
+            : isFocused
+              ? focusedOpacity
+              : baseOpacity * nonFocusedOpacityScale}
           {#if pts.length > 0}
+            {console.log("Rendering with SVG")}
             <polyline
               points={pts}
               fill="none"
               stroke={trajectory.color ?? trajectoryDefaultColor(trajectory.id, index, resolvedCategoryColors)}
-              stroke-width={trajectory.width ?? 1.5}
-              stroke-opacity={trajectory.opacity ?? 0.6}
+              stroke-width={effWidth}
+              stroke-opacity={effOpacity}
               stroke-linecap="round"
               stroke-linejoin="round"
+            />
+          {/if}
+        {/each}
+      </g>
+    {/if}
+    <!-- Focused trajectory point rings: outline every state the agent visited
+         in the focused episode so the user can read the path clearly. -->
+    {#if focusedTrajectoryIndex != null && trajectories != null && renderer != null}
+      {@const focusedTrajectory = trajectories[focusedTrajectoryIndex]}
+      {@const ringColor = focusedTrajectory.color
+        ?? trajectoryDefaultColor(focusedTrajectory.id, focusedTrajectoryIndex, resolvedCategoryColors)}
+      {@const ringRadius = Math.max(3, pointSize / pixelRatio) + focusedRingExtraRadius}
+      <g style:pointer-events="none">
+        {#each focusedTrajectory.points as p}
+          {@const { x, y } = pointLocation(p.x, p.y)}
+          {#if isFinite(x) && isFinite(y) && isFinite(ringRadius)}
+            <circle
+              cx={x}
+              cy={y}
+              r={ringRadius}
+              style:stroke={ringColor}
+              style:stroke-width={1.5}
+              style:fill="none"
             />
           {/if}
         {/each}

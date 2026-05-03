@@ -49,12 +49,15 @@
     viewportState = null,
     labels = null,
     trajectories = null,
+    trajectoryIdField = null,
+    focusedTrajectoryId = null,
     customTooltip = null,
     customOverlay = null,
     onViewportState = null,
     onTooltip = null,
     onSelection = null,
     onRangeSelection = null,
+    onFocusedTrajectoryId = null,
     cache = null,
   }: EmbeddingViewMosaicProps = $props();
 
@@ -322,9 +325,31 @@
     effectiveRangeSelection = null;
   }
 
+  // When trajectoryIdField is set, ensure the column is in additionalFields
+  // so clicked points carry it on `point.fields[trajectoryIdField]` and the
+  // view layer can match it against `Trajectory.id`. Idempotent — preserves
+  // any existing entry the user may have set themselves.
+  let mergedAdditionalFields = $derived.by(() => {
+    if (trajectoryIdField == null) {
+      return additionalFields;
+    }
+    if (additionalFields != null && trajectoryIdField in additionalFields) {
+      return additionalFields;
+    }
+    return { ...(additionalFields ?? {}), [trajectoryIdField]: trajectoryIdField };
+  });
+
   // Point query
   let pointQuery = $derived(
-    new DataPointQuery(coordinator, { table, x, y, category, text, identifier, additionalFields }),
+    new DataPointQuery(coordinator, {
+      table,
+      x,
+      y,
+      category,
+      text,
+      identifier,
+      additionalFields: mergedAdditionalFields,
+    }),
   );
 
   async function querySelection(px: number, py: number, unitDistance: number): Promise<DataPoint | null> {
@@ -484,6 +509,9 @@
   queryClusterLabels={queryClusterLabels}
   labels={labels}
   trajectories={trajectories}
+  trajectoryIdField={trajectoryIdField}
+  focusedTrajectoryId={focusedTrajectoryId}
+  onFocusedTrajectoryId={onFocusedTrajectoryId}
   customTooltip={customTooltip}
   customOverlay={customOverlay}
   tooltip={effectiveTooltip}
