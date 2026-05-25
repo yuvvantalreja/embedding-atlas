@@ -379,9 +379,7 @@
     return null;
   });
 
-  let baseRendererTrajectories = $derived(
-    resolveRendererTrajectories(trajectories ?? null, resolvedCategoryColors),
-  );
+  let baseRendererTrajectories = $derived(resolveRendererTrajectories(trajectories ?? null, resolvedCategoryColors));
 
   let resolvedRendererTrajectories = $derived(
     applyFocusStyling(
@@ -935,61 +933,6 @@
       hover: onHover,
     }}
   >
-    <!-- Trajectories: WebGPU renders them on the canvas (see draw_trajectories.ts).
-         Fall back to SVG polylines only when the WebGL2 renderer is in use.
-         The SVG fallback honours the focused-trajectory dim/emphasis the same
-         way the GPU path does (`applyFocusStyling`). -->
-    {#if trajectories != null && trajectories.length > 0 && renderer != null && rendererKind === "webgl2"}
-      <g style:pointer-events="none">
-        {#each trajectories as trajectory, index (trajectory.id ?? index)}
-          {@const pts = trajectoryToPolylinePoints(trajectory.points, pointLocation)}
-          {@const isFocused = focusedTrajectoryIndex != null && index === focusedTrajectoryIndex}
-          {@const baseWidth = trajectory.width ?? 1.5}
-          {@const baseOpacity = trajectory.opacity ?? 0.6}
-          {@const effWidth = isFocused ? baseWidth * focusedWidthScale : baseWidth}
-          {@const effOpacity = focusedTrajectoryIndex == null
-            ? baseOpacity
-            : isFocused
-              ? focusedOpacity
-              : baseOpacity * nonFocusedOpacityScale}
-          {#if pts.length > 0}
-            {console.log("Rendering with SVG")}
-            <polyline
-              points={pts}
-              fill="none"
-              stroke={trajectory.color ?? trajectoryDefaultColor(trajectory.id, index, resolvedCategoryColors)}
-              stroke-width={effWidth}
-              stroke-opacity={effOpacity}
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          {/if}
-        {/each}
-      </g>
-    {/if}
-    <!-- Focused trajectory point rings: outline every state the agent visited
-         in the focused episode so the user can read the path clearly. -->
-    {#if focusedTrajectoryIndex != null && trajectories != null && renderer != null}
-      {@const focusedTrajectory = trajectories[focusedTrajectoryIndex]}
-      {@const ringColor = focusedTrajectory.color
-        ?? trajectoryDefaultColor(focusedTrajectory.id, focusedTrajectoryIndex, resolvedCategoryColors)}
-      {@const ringRadius = Math.max(3, pointSize / pixelRatio) + focusedRingExtraRadius}
-      <g style:pointer-events="none">
-        {#each focusedTrajectory.points as p}
-          {@const { x, y } = pointLocation(p.x, p.y)}
-          {#if isFinite(x) && isFinite(y) && isFinite(ringRadius)}
-            <circle
-              cx={x}
-              cy={y}
-              r={ringRadius}
-              style:stroke={ringColor}
-              style:stroke-width={1.5}
-              style:fill="none"
-            />
-          {/if}
-        {/each}
-      </g>
-    {/if}
     <!-- Tooltip point -->
     {#if tooltip != null && renderer != null}
       {@const { x, y } = pointLocation(tooltip.x, tooltip.y)}

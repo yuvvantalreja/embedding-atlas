@@ -17,6 +17,7 @@ import type {
   Label,
   OverlayProxy,
   Trajectory,
+  TrajectorySpec,
 } from "./types.js";
 
 export interface EmbeddingViewMosaicProps {
@@ -74,8 +75,19 @@ export interface EmbeddingViewMosaicProps {
 
   /** Trajectories to overlay: each is an ordered list of points in data coordinates
    *  that will be connected with a polyline. Useful for visualizing sequential paths
-   *  (e.g., RL episodes) through the embedding. */
+   *  (e.g., RL episodes) through the embedding.
+   *
+   *  Static — does not participate in cross-filtering. For reactive trajectories
+   *  that re-aggregate when filters change, pass `trajectorySpec` instead. If
+   *  both are set, this prop wins. */
   trajectories?: Trajectory[] | null;
+
+  /** Column-based trajectory spec: aggregate the data table into trajectories
+   *  driven by Mosaic. The resulting polylines re-aggregate under the active
+   *  cross-filter, so brushing/lassoing/filtering in other charts also filters
+   *  the trajectories. Gaps in a group's filtered rows render as disconnected
+   *  segments. Requires `coordinator` (defaulted) and `table`. */
+  trajectorySpec?: TrajectorySpec | null;
 
   /** Column name whose value matches `Trajectory.id`. When set, the column is
    *  automatically included in the data point query, and plain-clicking a

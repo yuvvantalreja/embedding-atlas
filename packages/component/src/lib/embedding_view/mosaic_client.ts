@@ -4,7 +4,7 @@ import type { Coordinator } from "@uwdata/mosaic-core";
 import * as SQL from "@uwdata/mosaic-sql";
 
 import { boundingRect, type Point, type Rectangle } from "../utils.js";
-import type { DataField, DataPoint, DataPointID } from "./types.js";
+import type { DataField, DataPoint, DataPointID, Trajectory, TrajectorySpec } from "./types.js";
 
 export function predicateForDataPoints(
   source: { x: string; y: string; identifier?: string | null; category?: string | null },
@@ -257,4 +257,115 @@ export class DataPointQuery {
     let result = Array.from(await this.coordinator.query(q));
     return result.map((row) => this._convertToDataPoint(row));
   }
+}
+
+export interface TrajectoryQuerySource {
+  table: string;
+  x: string;
+  y: string;
+}
+
+/** Build the SQL that aggregates the data table into trajectory rows under the
+ *  given Mosaic predicate. A window function assigns each row a per-group step
+ *  index over the *unfiltered* ordering; the predicate is then applied. The
+ *  caller compares consecutive step indices in the result to detect rows that
+ *  were filtered out of the middle of a trajectory and break the polyline at
+ *  those gaps (see `parseTrajectoryResult`). */
+export function buildTrajectoryQuery(source: TrajectoryQuerySource, spec: TrajectorySpec, predicate: any | null) {
+  let maxGroups = spec.max_groups ?? 50;
+  let groupCol = SQL.column(spec.group_by);
+  let orderCol = SQL.column(spec.order_by);
+  let xCol = SQL.column(source.x);
+  let yCol = SQL.column(source.y);
+
+  let inner = SQL.Query.from(source.table).select("*", {
+    __traj_step: SQL.sql`row_number() OVER (PARTITION BY ${groupCol} ORDER BY ${orderCol})`,
+  });
+
+  let outerSelect: Record<string, any> = {
+    group_id: groupCol,
+    xs: SQL.sql`list(${xCol}::DOUBLE ORDER BY "__traj_step")`,
+    ys: SQL.sql`list(${yCol}::DOUBLE ORDER BY "__traj_step")`,
+    steps: SQL.sql`list("__traj_step" ORDER BY "__traj_step")`,
+    n: SQL.sql`count(*)::INT`,
+  };
+  if (spec.color_by) {
+    outerSelect.color_val = SQL.sql`any_value(${SQL.column(spec.color_by)})`;
+  }
+
+  let q = SQL.Query.from(inner).select(outerSelect).groupby(groupCol);
+  if (predicate) {
+    q = q.where(predicate);
+  }
+  q = q
+    .having(SQL.sql`count(*) >= 2`)
+    .orderby(SQL.sql`count(*) DESC`)
+    .limit(maxGroups);
+  return q;
+}
+
+/** Materialize the Arrow result from `buildTrajectoryQuery` into a
+ *  `Trajectory[]`. Inserts a `{x: NaN, y: NaN}` break-point between any two
+ *  consecutive points whose step indices are not adjacent in the original
+ *  ordering, so the renderer draws disconnected segments at filtered-out gaps
+ *  (see `buildTrajectorySegmentData` — it skips segments with non-finite
+ *  endpoints). */
+export function parseTrajectoryResult(data: any, spec: TrajectorySpec): Trajectory[] {
+  let groupCol = data.getChild("group_id");
+  let xsCol = data.getChild("xs");
+  let ysCol = data.getChild("ys");
+  let stepsCol = data.getChild("steps");
+  let colorCol = spec.color_by ? data.getChild("color_val") : null;
+  let colors = spec.colors ?? {};
+  let result: Trajectory[] = [];
+  let rowCount = data.numRows;
+  for (let i = 0; i < rowCount; i++) {
+    let xs = xsCol?.get(i);
+    let ys = ysCol?.get(i);
+    let steps = stepsCol?.get(i);
+    if (xs == null || ys == null || steps == null) {
+      continue;
+    }
+    let len = Math.min(xs.length, ys.length, steps.length);
+    if (len < 2) {
+      continue;
+    }
+    let points: { x: number; y: number }[] = [];
+    let prevStep: number | null = null;
+    for (let j = 0; j < len; j++) {
+      let xv = xs[j];
+      let yv = ys[j];
+      let step = Number(steps[j]);
+      if (xv == null || yv == null || !Number.isFinite(Number(xv)) || !Number.isFinite(Number(yv))) {
+        continue;
+      }
+      if (prevStep != null && step !== prevStep + 1) {
+        points.push({ x: NaN, y: NaN });
+      }
+      points.push({ x: Number(xv), y: Number(yv) });
+      prevStep = step;
+    }
+    if (points.length < 2) {
+      continue;
+    }
+    let traj: Trajectory = {
+      id: groupCol?.get(i) ?? undefined,
+      points,
+    };
+    if (spec.width != null) {
+      traj.width = spec.width;
+    }
+    if (spec.opacity != null) {
+      traj.opacity = spec.opacity;
+    }
+    if (colorCol != null) {
+      let value = colorCol.get(i);
+      let mapped = value != null ? colors[String(value)] : undefined;
+      if (mapped != null) {
+        traj.color = mapped;
+      }
+    }
+    result.push(traj);
+  }
+  return result;
 }
