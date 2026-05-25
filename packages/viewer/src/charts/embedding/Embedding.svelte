@@ -231,6 +231,7 @@
     }}
     labels={context.embeddingViewLabels}
     trajectories={context.embeddingViewTrajectories}
+    trajectorySpec={context.embeddingViewTrajectorySpec}
     trajectoryIdField={context.embeddingViewTrajectoryIdField}
     cache={context.persistentCache}
     additionalFields={Object.fromEntries(context.columns.map((c) => [c.name, c.name]))}

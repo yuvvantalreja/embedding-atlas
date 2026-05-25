@@ -2,7 +2,7 @@
 
 // The component API for embedding viewer.
 
-import type { EmbeddingViewConfig, Label, Trajectory } from "@embedding-atlas/component";
+import type { EmbeddingViewConfig, Label, Trajectory, TrajectorySpec } from "@embedding-atlas/component";
 import type { Coordinator } from "@uwdata/mosaic-core";
 import { createClassComponent } from "svelte/legacy";
 
@@ -68,8 +68,18 @@ export interface EmbeddingAtlasProps {
   embeddingViewLabels?: Label[] | null;
 
   /** Trajectories to overlay on the embedding view: each is an ordered list of
-   *  points in data coordinates to be connected with a polyline. */
+   *  points in data coordinates to be connected with a polyline.
+   *
+   *  Static — does not participate in cross-filtering. Use
+   *  `embeddingViewTrajectorySpec` for reactive trajectories. If both are set,
+   *  this prop wins. */
   embeddingViewTrajectories?: Trajectory[] | null;
+
+  /** Column-based trajectory spec. When set, trajectories are aggregated from
+   *  the data table by Mosaic and re-aggregate under the active cross-filter,
+   *  so brushing/lassoing/filtering in other charts also filters the
+   *  trajectories. Gaps render as disconnected segments. */
+  embeddingViewTrajectorySpec?: TrajectorySpec | null;
 
   /** Column name whose value matches `Trajectory.id`. When set, plain-clicking
    *  a point focuses the trajectory with the matching id (other trajectories

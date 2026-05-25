@@ -1,6 +1,6 @@
 // Copyright (c) 2025 Apple Inc. Licensed under MIT License.
 
-import type { EmbeddingViewConfig, Label, Trajectory } from "@embedding-atlas/component";
+import type { EmbeddingViewConfig, Label, Trajectory, TrajectorySpec } from "@embedding-atlas/component";
 import type { Coordinator, Selection } from "@uwdata/mosaic-core";
 import type { Readable, Writable } from "svelte/store";
 
@@ -100,6 +100,9 @@ export interface ChartContext {
 
   /** Trajectories to overlay on the embedding view. */
   embeddingViewTrajectories?: Trajectory[] | null;
+
+  /** Column-based trajectory spec for reactive trajectories driven by Mosaic. */
+  embeddingViewTrajectorySpec?: TrajectorySpec | null;
 
   /** Column name whose value matches `Trajectory.id` for click-to-focus. */
   embeddingViewTrajectoryIdField?: string | null;

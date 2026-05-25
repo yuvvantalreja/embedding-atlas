@@ -36,7 +36,6 @@ def _():
     import gymnasium as gym
     from stable_baselines3 import DQN
     import matplotlib
-
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
@@ -582,6 +581,7 @@ def _(EmbeddingAtlasWidget, lunar_proj):
         show_charts=True,
         show_table=True,
         point_size=2.0,
+        trajectory_id_field="episode",
         trajectories={
             "group_by": "episode",
             "order_by": "step_in_episode",

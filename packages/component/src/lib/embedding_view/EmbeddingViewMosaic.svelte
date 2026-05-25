@@ -12,11 +12,13 @@
   import { IMAGE_LABEL_SIZE } from "./labels.js";
   import {
     DataPointQuery,
+    buildTrajectoryQuery,
+    parseTrajectoryResult,
     predicateForDataPoints,
     predicateForRangeSelection,
     queryApproximateDensity,
   } from "./mosaic_client.js";
-  import type { DataPoint, DataPointID, LabelContent } from "./types.js";
+  import type { DataPoint, DataPointID, LabelContent, Trajectory } from "./types.js";
   import {
     textSummarizerAdd,
     textSummarizerCreate,
@@ -49,6 +51,7 @@
     viewportState = null,
     labels = null,
     trajectories = null,
+    trajectorySpec = null,
     trajectoryIdField = null,
     focusedTrajectoryId = null,
     customTooltip = null,
@@ -74,6 +77,14 @@
   let effectiveRangeSelection: Rectangle | Point[] | null = $state.raw(null);
 
   let clientId: any | null = $state.raw(null);
+
+  // Reactive trajectories computed under the active Mosaic cross-filter. When
+  // `trajectorySpec` is set, a dedicated Mosaic client re-aggregates the data
+  // table on every filter change and writes the result here. The static
+  // `trajectories` prop, if provided, always wins (predictable for callers
+  // mixing both forms).
+  let computedTrajectories: Trajectory[] | null = $state.raw(null);
+  let effectiveTrajectories = $derived(trajectories ?? computedTrajectories);
 
   $effect(() => {
     // Let Svelte track the dependencies.
@@ -141,6 +152,42 @@
       didDestroy = true;
       client?.destroy();
     };
+  });
+
+  // Reactive trajectory client. Runs only when `trajectorySpec` is provided;
+  // re-aggregates trajectories under the active cross-filter on every change.
+  $effect(() => {
+    let spec = trajectorySpec;
+    let deps = { coordinator, source: { table, x, y } };
+    if (spec == null) {
+      computedTrajectories = null;
+      return;
+    }
+    let client = makeClient({
+      coordinator: deps.coordinator,
+      selection: filter ?? undefined,
+      query: (predicate) => buildTrajectoryQuery(deps.source, spec, predicate),
+      queryResult: (data: any) => {
+        computedTrajectories = parseTrajectoryResult(data, spec);
+      },
+    });
+    return () => {
+      client.destroy();
+      computedTrajectories = null;
+    };
+  });
+
+  // If the focused trajectory disappears from the filtered result, clear focus.
+  $effect(() => {
+    let focused = focusedTrajectoryId;
+    let list = effectiveTrajectories;
+    if (focused == null || list == null) {
+      return;
+    }
+    let stillPresent = list.some((t) => t.id != null && t.id === focused);
+    if (!stillPresent) {
+      onFocusedTrajectoryId?.(null);
+    }
   });
 
   // Tooltip
@@ -508,7 +555,7 @@
   querySelection={querySelection}
   queryClusterLabels={queryClusterLabels}
   labels={labels}
-  trajectories={trajectories}
+  trajectories={effectiveTrajectories}
   trajectoryIdField={trajectoryIdField}
   focusedTrajectoryId={focusedTrajectoryId}
   onFocusedTrajectoryId={onFocusedTrajectoryId}

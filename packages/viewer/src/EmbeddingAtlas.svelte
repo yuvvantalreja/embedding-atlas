@@ -54,6 +54,7 @@
     embeddingViewConfig = null,
     embeddingViewLabels = null,
     embeddingViewTrajectories = null,
+    embeddingViewTrajectorySpec = null,
     embeddingViewTrajectoryIdField = null,
     chartTheme,
     colorScheme: colorSchemeProp,
@@ -315,6 +316,7 @@
     embeddingViewConfig: embeddingViewConfig,
     embeddingViewLabels: embeddingViewLabels,
     embeddingViewTrajectories: embeddingViewTrajectories,
+    embeddingViewTrajectorySpec: embeddingViewTrajectorySpec,
     embeddingViewTrajectoryIdField: embeddingViewTrajectoryIdField,
   };
 

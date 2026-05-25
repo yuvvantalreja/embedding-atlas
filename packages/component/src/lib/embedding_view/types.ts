@@ -54,6 +54,28 @@ export interface Trajectory {
   id?: string | number;
 }
 
+/** Reactive column-based trajectory spec. When provided to a Mosaic-aware view,
+ *  trajectories are aggregated from the data table and re-aggregated under the
+ *  active cross-filter, so filtering points in any chart also filters the
+ *  polylines. Gaps in a group's filtered rows render as disconnected segments. */
+export interface TrajectorySpec {
+  /** Column identifying each trajectory (one polyline per distinct value). */
+  group_by: string;
+  /** Column determining step order within a trajectory. */
+  order_by: string;
+  /** Cap on the number of trajectories drawn. Defaults to 50.
+   *  The largest groups (by row count) are kept. */
+  max_groups?: number;
+  /** Stroke width in CSS pixels. */
+  width?: number;
+  /** Stroke opacity in [0, 1]. */
+  opacity?: number;
+  /** Column whose value selects the color (looked up in `colors`). */
+  color_by?: string;
+  /** Map from `color_by` value to CSS color. */
+  colors?: Record<string, string>;
+}
+
 type CustomComponentClass<N, P> = new (node: N, props: P) => { update?: (props: P) => void; destroy?: () => void };
 
 export type CustomComponent<N, P> =

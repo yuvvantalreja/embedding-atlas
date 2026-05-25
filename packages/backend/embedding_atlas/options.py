@@ -51,8 +51,13 @@ class EmbeddingAtlasOptions(TypedDict, total=False):
           trajectory), ``order_by`` (column determining step order within a trajectory),
           and optional ``max_groups`` (cap on number of trajectories drawn; default 50),
           ``width``, ``opacity``, and ``color_by`` (column whose value selects the color).
+          This form is **reactive**: the trajectories re-aggregate from the data
+          table under the active Mosaic cross-filter, so brushing, lassoing, or
+          filtering in any chart also filters the trajectories. Gaps in a
+          group's filtered rows render as disconnected segments.
         - An explicit list of trajectory dicts ``{"points": [{"x": ..., "y": ...}, ...],
-          "id": ..., "color": ..., "width": ..., "opacity": ...}``.
+          "id": ..., "color": ..., "width": ..., "opacity": ...}``. This form is
+          **static** and does not participate in cross-filtering.
 
     trajectory_id_field:
         Column name whose value matches each trajectory's id. When set, plain-clicking
@@ -163,7 +168,11 @@ def make_embedding_atlas_props(**options: Unpack[EmbeddingAtlasOptions]) -> dict
     # Embedding View
     set_prop("embeddingViewConfig.pointSize", options.get("point_size"))
     set_prop("embeddingViewLabels", options.get("labels"))
-    set_prop("embeddingViewTrajectories", options.get("trajectories"))
+    trajectories_opt = options.get("trajectories")
+    if isinstance(trajectories_opt, dict):
+        set_prop("embeddingViewTrajectorySpec", trajectories_opt)
+    elif isinstance(trajectories_opt, list):
+        set_prop("embeddingViewTrajectories", trajectories_opt)
     set_prop("embeddingViewTrajectoryIdField", options.get("trajectory_id_field"))
     set_prop("embeddingViewConfig.autoLabelStopWords", options.get("stop_words"))
 
