@@ -46,10 +46,19 @@ export interface Trajectory {
   points: { x: number; y: number }[];
   /** Optional stroke color (CSS color). Defaults to a generated color per trajectory. */
   color?: string;
-  /** Optional stroke width in CSS pixels. Defaults to 1.5. */
+  /** Optional stroke width in CSS pixels. Defaults to 1.2. */
   width?: number;
-  /** Optional stroke opacity. Defaults to 0.6. */
+  /** Optional stroke opacity. Defaults to 0.25.
+   *  The rendered alpha is also modulated tail→head: the start of a trajectory
+   *  is drawn at `tailAlphaScale * opacity` and the end at full `opacity`,
+   *  giving each polyline a visible sense of direction. */
   opacity?: number;
+  /** Optional per-step CSS colors, parallel to `points`. When provided, each
+   *  segment is colored using the destination point's color (i.e. segment
+   *  `i → i+1` uses `stepColors[i + 1]`). Use this to color flow by an
+   *  action/state that changes along the trajectory. Entries may be `null` at
+   *  the same index as a gap (NaN) point; those segments are skipped. */
+  stepColors?: (string | null | undefined)[];
   /** Optional identifier (e.g., episode id) — used for keying and default color hashing. */
   id?: string | number;
 }
@@ -70,8 +79,15 @@ export interface TrajectorySpec {
   width?: number;
   /** Stroke opacity in [0, 1]. */
   opacity?: number;
-  /** Column whose value selects the color (looked up in `colors`). */
+  /** Column whose value selects the color (looked up in `colors`).
+   *  By default each segment is colored by its endpoint's value, so a polyline
+   *  can change color along its length (e.g. by `action`). Set
+   *  `color_per_segment` to `false` to use a single color per trajectory
+   *  (taken from any row in the group). */
   color_by?: string;
+  /** When `color_by` is set, controls whether each segment carries its own
+   *  color (true, default) or the whole polyline uses one color (false). */
+  color_per_segment?: boolean;
   /** Map from `color_by` value to CSS color. */
   colors?: Record<string, string>;
 }

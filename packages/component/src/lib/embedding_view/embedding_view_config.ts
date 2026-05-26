@@ -58,4 +58,19 @@ export interface EmbeddingViewConfig {
    * trajectory, on top of the rendered point size.
    * Default: 1 */
   focusedPointRingExtraRadius?: number | null;
+
+  /** Tail→head opacity gradient: every trajectory is drawn at
+   * `opacity * trajectoryTailAlphaScale` at its start point and at full
+   * `opacity` at its end, giving each polyline a visible sense of direction.
+   * Set to 1 to disable the gradient.
+   * Default: 0.2 */
+  trajectoryTailAlphaScale?: number | null;
+
+  /** Segments whose data-space length exceeds this multiple of their
+   * trajectory's median segment length are rendered as dashed, dimmed
+   * "jumps" — useful for de-emphasizing cross-cluster hops or episode
+   * resets that would otherwise dominate the canvas. Set to
+   * `null`/`Infinity` to disable.
+   * Default: 5 */
+  trajectoryJumpThreshold?: number | null;
 }

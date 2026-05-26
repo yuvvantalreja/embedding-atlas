@@ -75,8 +75,8 @@ struct FragmentOutput {
 // bind group layout for group 1 that exposes only binding 3.
 struct TrajectorySegment {
   endpoints: vec4<f32>, // (x0, y0, x1, y1) in data coordinates
-  color: vec4<f32>,     // linear-space RGB (already gamma-encoded), A = stroke opacity
-  params: vec4<f32>,    // (width_in_framebuffer_pixels, _, _, _)
+  color: vec4<f32>,     // linear-space RGB (already gamma-encoded); .a unused
+  params: vec4<f32>,    // (width_px, alpha_at_p0, alpha_at_p1, is_jump_flag)
 }
 @group(1) @binding(3) var<storage, read> trajectory_segments: array<TrajectorySegment>;
 
@@ -536,6 +536,14 @@ struct TrajectoryVertexOutput {
   @location(2) p1_px: vec2<f32>,
   @location(3) color: vec4<f32>,
   @location(4) half_width_px: f32,
+  // Per-segment alpha at this vertex's endpoint side. The GPU linearly
+  // interpolates across the quad, giving us a tail→head opacity gradient
+  // for free when alpha0 ≠ alpha1.
+  @location(5) alpha_along: f32,
+  // 0 = normal segment, 1 = jump (rendered dashed and dimmed). Same value on
+  // all four vertices of an instance, so flat-interpolate to avoid any
+  // rounding drift.
+  @location(6) @interpolate(flat) is_jump: f32,
 }
 
 @vertex
@@ -582,6 +590,8 @@ fn trajectory_vs(
   out.p1_px = p1_px;
   out.color = seg.color;
   out.half_width_px = half_width;
+  out.alpha_along = mix(seg.params.y, seg.params.z, along_t);
+  out.is_jump = seg.params.w;
   return out;
 }
 
@@ -595,7 +605,21 @@ fn trajectory_fs(in: TrajectoryVertexOutput) -> FragmentOutput {
 
   // Anti-aliased coverage in [0, 1] for a stroke of half_width_px.
   let aa = 1.0 - smoothstep(in.half_width_px - 0.5, in.half_width_px + 0.5, d);
-  let alpha = clamp(aa * in.color.a, 0.0, 1.0);
+
+  // Dashed pattern for "jump" segments: alternating 3px stroke / 3px gap in
+  // screen space, so dashes look the same length regardless of zoom. We
+  // sample the pattern in screen-space pixels (h × segment_len_px) so a long
+  // jump at high zoom is broken into many dashes rather than one big stroke.
+  let seg_len_px = length(in.p1_px - in.p0_px);
+  let dash_period = 6.0;
+  let dash_on = 3.0;
+  let phase = fract(h * seg_len_px / dash_period) * dash_period;
+  let dash = smoothstep(dash_on + 0.5, dash_on - 0.5, phase);
+  // jump_mul: 1.0 for normal segments, dash × 0.5 for jumps (so they read
+  // as dimmed/dashed and recede behind the main flow).
+  let jump_mul = mix(1.0, dash * 0.5, in.is_jump);
+
+  let alpha = clamp(aa * in.alpha_along * jump_mul, 0.0, 1.0);
 
   var out: FragmentOutput;
   // Pre-multiplied color, matching points_fs output convention.
