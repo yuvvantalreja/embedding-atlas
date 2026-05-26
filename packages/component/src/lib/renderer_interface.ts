@@ -13,9 +13,23 @@ export type RenderMode = "points" | "density";
  */
 export interface RendererTrajectory {
   points: { x: number; y: number }[];
+  /** Default trajectory color, used for any segment that doesn't have its
+   *  own entry in `segmentColors`. */
   color: { r: number; g: number; b: number };
+  /** Optional per-segment colors, length = `points.length - 1`. An entry of
+   *  `null` falls back to `color`. */
+  segmentColors?: ({ r: number; g: number; b: number } | null)[];
   width: number;
   opacity: number;
+  /** Multiplier on `opacity` applied at the trajectory's tail (its first
+   *  point); the head (last point) is drawn at full opacity. Values in
+   *  `[0, 1)` produce a directional fade — the default of 0.2 makes the
+   *  start of each polyline noticeably dimmer than its end. */
+  tailAlphaScale?: number;
+  /** Length ratio above which a segment is treated as a "jump" (rendered
+   *  dashed, dimmed). Compared against each trajectory's median segment
+   *  length. Default 5; pass `Infinity` to disable. */
+  jumpThreshold?: number;
 }
 
 export interface EmbeddingRendererProps {

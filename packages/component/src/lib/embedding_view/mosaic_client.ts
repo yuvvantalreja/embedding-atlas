@@ -290,7 +290,13 @@ export function buildTrajectoryQuery(source: TrajectoryQuerySource, spec: Trajec
     n: SQL.sql`count(*)::INT`,
   };
   if (spec.color_by) {
-    outerSelect.color_val = SQL.sql`any_value(${SQL.column(spec.color_by)})`;
+    // `color_val` is a single representative used for whole-polyline coloring
+    // (or as a fallback when the per-step list is null). `color_vals` is the
+    // per-step list — populated unconditionally so callers can opt into
+    // per-segment coloring at parse time without re-issuing the query.
+    let colorCol = SQL.column(spec.color_by);
+    outerSelect.color_val = SQL.sql`any_value(${colorCol})`;
+    outerSelect.color_vals = SQL.sql`list(${colorCol} ORDER BY "__traj_step")`;
   }
 
   let q = SQL.Query.from(inner).select(outerSelect).groupby(groupCol);
@@ -316,7 +322,14 @@ export function parseTrajectoryResult(data: any, spec: TrajectorySpec): Trajecto
   let ysCol = data.getChild("ys");
   let stepsCol = data.getChild("steps");
   let colorCol = spec.color_by ? data.getChild("color_val") : null;
+  let colorValsCol = spec.color_by ? data.getChild("color_vals") : null;
   let colors = spec.colors ?? {};
+  // Per-segment coloring is on by default whenever the caller specified a
+  // `color_by` column — that's almost always what they want when each row has
+  // a meaningful value (e.g. RL `action`). Set `color_per_segment: false` to
+  // force a single color for the whole polyline (e.g. when `color_by` is
+  // really a group-level attribute that doesn't vary within a trajectory).
+  let perSegment = spec.color_by != null && spec.color_per_segment !== false;
   let result: Trajectory[] = [];
   let rowCount = data.numRows;
   for (let i = 0; i < rowCount; i++) {
@@ -330,7 +343,21 @@ export function parseTrajectoryResult(data: any, spec: TrajectorySpec): Trajecto
     if (len < 2) {
       continue;
     }
+    // Raw per-step color values aligned to the same index space as xs/ys.
+    let rawColorVals: any[] | null = null;
+    if (perSegment && colorValsCol != null) {
+      let cv = colorValsCol.get(i);
+      // Arrow returns a typed Vector or array — coerce to a plain array so we
+      // can index it uniformly with the gap-insertion loop below.
+      if (cv != null && typeof cv.length === "number") {
+        rawColorVals = [];
+        for (let j = 0; j < cv.length; j++) {
+          rawColorVals.push(cv.get != null ? cv.get(j) : cv[j]);
+        }
+      }
+    }
     let points: { x: number; y: number }[] = [];
+    let stepColors: (string | null | undefined)[] | null = rawColorVals != null ? [] : null;
     let prevStep: number | null = null;
     for (let j = 0; j < len; j++) {
       let xv = xs[j];
@@ -341,8 +368,14 @@ export function parseTrajectoryResult(data: any, spec: TrajectorySpec): Trajecto
       }
       if (prevStep != null && step !== prevStep + 1) {
         points.push({ x: NaN, y: NaN });
+        stepColors?.push(null);
       }
       points.push({ x: Number(xv), y: Number(yv) });
+      if (stepColors != null) {
+        let v = rawColorVals![j];
+        let mapped = v != null ? colors[String(v)] : undefined;
+        stepColors.push(mapped ?? null);
+      }
       prevStep = step;
     }
     if (points.length < 2) {
@@ -364,6 +397,9 @@ export function parseTrajectoryResult(data: any, spec: TrajectorySpec): Trajecto
       if (mapped != null) {
         traj.color = mapped;
       }
+    }
+    if (stepColors != null && stepColors.length === points.length) {
+      traj.stepColors = stepColors;
     }
     result.push(traj);
   }

@@ -159,6 +159,8 @@
   function resolveRendererTrajectories(
     trajectories: Trajectory[] | null,
     palette: string[],
+    tailAlphaScale: number,
+    jumpThreshold: number,
   ): RendererTrajectory[] | null {
     if (trajectories == null || trajectories.length == 0) {
       return null;
@@ -171,13 +173,34 @@
       }
       let colorStr = t.color ?? trajectoryDefaultColor(t.id, i, palette);
       let rgba = parseColorNormalizedRgb(colorStr);
-      let userOpacity = t.opacity ?? 0.6;
+      let userOpacity = t.opacity ?? 0.25;
+
+      // Resolve per-step colors into per-segment colors (segment i takes the
+      // destination point's color, i.e. stepColors[i + 1]). If no step colors
+      // are provided the renderer falls back to the trajectory's `color`.
+      let segmentColors: ({ r: number; g: number; b: number } | null)[] | undefined;
+      if (t.stepColors != null && t.stepColors.length === t.points.length) {
+        segmentColors = [];
+        for (let j = 1; j < t.points.length; j++) {
+          let cs = t.stepColors[j];
+          if (cs == null) {
+            segmentColors.push(null);
+          } else {
+            let c = parseColorNormalizedRgb(cs);
+            segmentColors.push({ r: c.r, g: c.g, b: c.b });
+          }
+        }
+      }
+
       out.push({
         points: t.points,
         color: { r: rgba.r, g: rgba.g, b: rgba.b },
+        segmentColors,
         // Combine the CSS color's own opacity with the trajectory opacity.
         opacity: Math.max(0, Math.min(1, rgba.a * userOpacity)),
-        width: t.width ?? 1.5,
+        width: t.width ?? 1.2,
+        tailAlphaScale,
+        jumpThreshold,
       });
     }
     return out.length == 0 ? null : out;
@@ -306,6 +329,8 @@
   let focusedOpacity = $derived(config?.focusedTrajectoryOpacity ?? 1.0);
   let nonFocusedOpacityScale = $derived(config?.nonFocusedTrajectoryOpacityScale ?? 0.3);
   let focusedRingExtraRadius = $derived(config?.focusedPointRingExtraRadius ?? 1);
+  let trajectoryTailAlphaScale = $derived(config?.trajectoryTailAlphaScale ?? 0.2);
+  let trajectoryJumpThreshold = $derived(config?.trajectoryJumpThreshold ?? 5);
 
   let viewingParams = $derived(
     viewingParameters(
@@ -344,16 +369,13 @@
       let t = base[i];
       if (i === focusIndex) {
         focused = {
-          points: t.points,
-          color: t.color,
+          ...t,
           width: t.width * widthScale,
           opacity: Math.max(0, Math.min(1, focusOpacity)),
         };
       } else {
         dimmed.push({
-          points: t.points,
-          color: t.color,
-          width: t.width,
+          ...t,
           opacity: Math.max(0, Math.min(1, t.opacity * dimScale)),
         });
       }
@@ -379,7 +401,14 @@
     return null;
   });
 
-  let baseRendererTrajectories = $derived(resolveRendererTrajectories(trajectories ?? null, resolvedCategoryColors));
+  let baseRendererTrajectories = $derived(
+    resolveRendererTrajectories(
+      trajectories ?? null,
+      resolvedCategoryColors,
+      trajectoryTailAlphaScale,
+      trajectoryJumpThreshold,
+    ),
+  );
 
   let resolvedRendererTrajectories = $derived(
     applyFocusStyling(
