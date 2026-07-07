@@ -92,10 +92,16 @@ def _resolve_layer(model, layer) -> tuple[Any, Callable]:
         # DQN keeps it on q_net; SAC keeps it on actor; PPO/A2C keep one on policy.
         for container_name in ("policy", "q_net", "actor"):
             container = getattr(model, container_name, None)
-            fe = getattr(container, "features_extractor", None) if container is not None else None
+            fe = (
+                getattr(container, "features_extractor", None)
+                if container is not None
+                else None
+            )
             if fe is not None:
                 return fe, _forward_for_root(model, container_name)
-        raise ValueError("Could not locate a features_extractor on policy / q_net / actor")
+        raise ValueError(
+            "Could not locate a features_extractor on policy / q_net / actor"
+        )
 
     if layer == "q_net":
         if name != "DQN":

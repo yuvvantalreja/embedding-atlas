@@ -249,6 +249,7 @@ async def _(
         observation_columns=["state"],
         action_columns=["action"],
     )
+    # Computes UMAP projections
     cartpole_proj = await async_compute_projection(
         cartpole_proj,
         inputs=_vec,
@@ -317,11 +318,20 @@ async def _(
     """Re-project CartPole using Q-network penultimate activations."""
     cp_act = cartpole_enriched.copy()
     cp_act = add_activation_column(cp_act, cartpole_model, layer="auto")
+
+
     cp_act, _vec = prepare_rl_data_for_projection(
         cp_act,
         observation_columns=["activations"],
         action_columns=None,
     )
+
+    print(cp_act.head)
+
+    print(f"{_vec=}")
+
+    # Compute UMAP projection
+    # 64D Q-Network Hidden State
     cp_act = await async_compute_projection(
         cp_act,
         inputs=_vec,
@@ -334,6 +344,7 @@ async def _(
     cp_act = cp_act.drop(
         columns=[c for c in [_vec, "state", "next_state", "activations"] if c in cp_act.columns]
     )
+
     print(f"CartPole activation projection ready: {len(cp_act)} points")
     return (cp_act,)
 
