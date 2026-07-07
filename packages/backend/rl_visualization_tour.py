@@ -16,7 +16,7 @@ Prerequisites:
 
 import marimo
 
-__generated_with = "0.23.1"
+__generated_with = "0.23.8"
 app = marimo.App(width="full", app_title="RL Visualization — Embedding Atlas")
 
 
@@ -31,27 +31,32 @@ def _():
 
 @app.cell
 def _():
-    from embedding_atlas.widget import EmbeddingAtlasWidget
-    from embedding_atlas.projection import async_compute_projection
     import gymnasium as gym
-    from stable_baselines3 import DQN
     import matplotlib
+    from embedding_atlas.projection import async_compute_projection
+    from embedding_atlas.rl_activations import add_activation_column
+    from embedding_atlas.widget import EmbeddingAtlasWidget
+    from stable_baselines3 import DQN
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    return DQN, EmbeddingAtlasWidget, async_compute_projection, gym
+    return (
+        DQN,
+        EmbeddingAtlasWidget,
+        add_activation_column,
+        async_compute_projection,
+        gym,
+    )
 
 
 @app.cell
 def _():
-    from embedding_atlas.rl_utils import (
-        prepare_rl_data_for_projection,
-        unpack_state_components,
-        compute_td_error,
-        format_state_description,
-        compute_episode_metadata,
-        plot_episode_timeline,
-    )
+    from embedding_atlas.rl_utils import (compute_episode_metadata,
+                                          compute_td_error,
+                                          format_state_description,
+                                          plot_episode_timeline,
+                                          prepare_rl_data_for_projection,
+                                          unpack_state_components)
 
     return (
         compute_episode_metadata,
@@ -65,37 +70,7 @@ def _():
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    # RL Replay Buffer Visualization
-
-    This notebook demonstrates how **Embedding Atlas** can visualize reinforcement
-    learning replay buffers — turning opaque training data into explorable,
-    interactive maps.
-
-    Inspired by [Vizarel (Deshpande & Schneider, 2020)](https://arxiv.org/abs/2007.05577),
-    we project replay buffer experiences into 2D and enrich them with metadata that
-    reveals **what the agent learned**, **where it struggled**, and **how its policy evolved**.
-
-    | # | Section | What you'll see |
-    |---|---------|-----------------|
-    | 1 | **CartPole DQN** | Policy evolution — safe vs dangerous states, Q-value landscapes |
-    | 2 | **Episode Trajectories** | Follow individual episodes through the embedding |
-    | 3 | **LunarLander DQN** | Dense rewards, flight phases, landing vs crashing |
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ---
-    ## Section 1 · CartPole DQN — Watching an Agent Learn
-
-    We train a DQN agent on **CartPole-v1** for **50 000 steps**. The agent starts
-    with a random policy and gradually learns to balance the pole.
-
-    The replay buffer captures every experience `(state, action, reward, next_state, done)`.
-    We unpack the 4D state into named physical quantities, compute Q-values and
-    TD errors, then project everything to 2D with UMAP.
+    ## Replay Buffer Visualization
     """)
     return
 
@@ -272,6 +247,7 @@ async def _(
         observation_columns=["state"],
         action_columns=["action"],
     )
+    # Computes UMAP projections
     cartpole_proj = await async_compute_projection(
         cartpole_proj,
         inputs=_vec,
@@ -287,25 +263,6 @@ async def _(
     )
     print(f"CartPole projection ready: {len(cartpole_proj)} points")
     return (cartpole_proj,)
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ### What to look for
-
-    - **Charts panel** (right side): Click on a bar in `pole_danger` to highlight
-      *safe* vs *critical* states. Critical states (large pole angle) tend to cluster
-      separately — these are moments right before the pole falls.
-    - **`training_stage`**: Filter by *early* / *mid* / *late* to see how the agent's
-      experience distribution shifts as it learns.
-    - **`episode_outcome`**: *survived* episodes (length ≥ 200) cluster in the "safe"
-      region of the embedding.
-    - **Hover** over any point to see its state description (pole angle, cart position,
-      action, Q-value).
-    - **Lasso-select** a cluster to see detailed statistics below the widget.
-    """)
-    return
 
 
 @app.cell
@@ -337,25 +294,86 @@ def _(cartpole_widget):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
+    ## Activation View
+
+    The projection above uses the raw 4-D state as input. Clusters reflect
+    physical similarity (similar cart positions, pole angles).
+
+    Below we re-project using the penultimate-layer activations of the trained
+    Q-network instead.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+async def _(
+    add_activation_column,
+    async_compute_projection,
+    cartpole_enriched,
+    cartpole_model,
+    prepare_rl_data_for_projection,
+):
+    """Re-project CartPole using Q-network penultimate activations."""
+    cp_act = cartpole_enriched.copy()
+    cp_act = add_activation_column(cp_act, cartpole_model, layer="auto")
+
+
+    cp_act, _vec = prepare_rl_data_for_projection(
+        cp_act,
+        observation_columns=["activations"],
+        action_columns=None,
+    )
+
+    print(cp_act.head)
+
+    print(f"{_vec=}")
+
+    # Compute UMAP projection
+    # 64D Q-Network Hidden State
+    cp_act = await async_compute_projection(
+        cp_act,
+        inputs=_vec,
+        modality="vector",
+        x="projection_x",
+        y="projection_y",
+        neighbors="neighbors",
+        umap_args={"n_neighbors": 15, "min_dist": 0.1, "metric": "cosine"},
+    )
+    cp_act = cp_act.drop(
+        columns=[c for c in [_vec, "state", "next_state", "activations"] if c in cp_act.columns]
+    )
+
+    print(f"CartPole activation projection ready: {len(cp_act)} points")
+    return (cp_act,)
+
+
+@app.cell
+def _(EmbeddingAtlasWidget, cp_act):
+    cartpole_act_widget = EmbeddingAtlasWidget(
+        cp_act,
+        x="projection_x",
+        y="projection_y",
+        neighbors="neighbors",
+        text="state_description",
+        labels="automatic",
+        show_charts=True,
+        show_table=True,
+        point_size=2.0,
+    )
+    return (cartpole_act_widget,)
+
+
+@app.cell
+def _(cartpole_act_widget):
+    cartpole_act_widget
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
     ---
-    ## Section 2· LunarLander DQN — Dense Rewards and Rich State
-
-    LunarLander provides **dense reward shaping**: the agent earns continuous rewards
-    for approaching the landing pad and penalties for using fuel, plus large bonuses
-    (+100 for landing, -100 for crashing).
-
-    The 8D state captures intuitive physics: position, velocity, angle, angular
-    velocity, and leg contact. We unpack these into named columns so you can
-    **see clusters correspond to flight phases** — high altitude, approach, and landing.
-
-    | Column | Meaning |
-    |--------|---------|
-    | `flight_phase` | high_altitude / approach / landing (based on altitude) |
-    | `action_name` | noop / left_engine / main_engine / right_engine |
-    | `reward_category` | high_penalty / small_penalty / small_reward / high_reward |
-    | `landing_outcome` | landed / crashed / in_flight (terminal states only) |
-    | `speed` | sqrt(vel_x^2 + vel_y^2) — how fast the lander is moving |
-
+    ## LunarLander DQN
 
     ### Environment Inputs
 
@@ -550,25 +568,6 @@ async def _(
     return (lunar_proj,)
 
 
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ### What to look for
-
-    - **`flight_phase`** in the charts panel creates the most visible clustering:
-      *high_altitude* points (early in episode) cluster separately from *landing*
-      points (near the pad). Filter each phase to see how they map spatially.
-    - **`reward_category`**: *high_reward* points cluster near successful landings.
-      *high_penalty* points cluster near crashes and excessive fuel use.
-    - **`landing_outcome`**: Filter to *landed* or *crashed* to see where successful
-      vs failed episodes end up in the embedding.
-    - **`training_stage`**: Compare *early* (random behavior) vs *late* (learned policy)
-      to see how the experience distribution shifts toward successful regions.
-    - **Hover** shows position, speed, angle, action, Q-value, and reward.
-    """)
-    return
-
-
 @app.cell
 def _(EmbeddingAtlasWidget, lunar_proj):
     lunar_widget = EmbeddingAtlasWidget(
@@ -602,6 +601,74 @@ def _(EmbeddingAtlasWidget, lunar_proj):
 @app.cell
 def _(lunar_widget):
     lunar_widget
+    return
+
+
+@app.cell(hide_code=True)
+async def _(
+    add_activation_column,
+    async_compute_projection,
+    lunar_enriched,
+    lunar_model,
+    prepare_rl_data_for_projection,
+):
+    """Re-project LunarLander using Q-network penultimate activations."""
+    ll_act = lunar_enriched.copy()
+    ll_act = add_activation_column(ll_act, lunar_model, layer="auto")
+    ll_act, _vec = prepare_rl_data_for_projection(
+        ll_act,
+        observation_columns=["activations"],
+        action_columns=None,
+    )
+    ll_act = await async_compute_projection(
+        ll_act,
+        inputs=_vec,
+        modality="vector",
+        x="projection_x",
+        y="projection_y",
+        neighbors="neighbors",
+        umap_args={"n_neighbors": 15, "min_dist": 0.1, "metric": "cosine"},
+    )
+    ll_act = ll_act.drop(
+        columns=[c for c in [_vec, "state", "next_state", "activations"] if c in ll_act.columns]
+    )
+    print(f"LunarLander activation projection ready: {len(ll_act)} points")
+    return (ll_act,)
+
+
+@app.cell
+def _(EmbeddingAtlasWidget, ll_act):
+    lunar_act_widget = EmbeddingAtlasWidget(
+        ll_act,
+        x="projection_x",
+        y="projection_y",
+        neighbors="neighbors",
+        text="state_description",
+        labels="disabled",
+        show_charts=True,
+        show_table=True,
+        point_size=2.0,
+        trajectory_id_field="episode",
+        trajectories={
+            "group_by": "episode",
+            "order_by": "step_in_episode",
+            "color_by": "episode",
+            "colors": {
+                "landed": "#16a34a",
+                "crashed": "#dc2626",
+                "in_flight": "#64748b",
+            },
+            "max_groups": 50,
+            "width": 1,
+            "opacity": 0.020,
+        },
+    )
+    return (lunar_act_widget,)
+
+
+@app.cell
+def _(lunar_act_widget):
+    lunar_act_widget
     return
 
 
