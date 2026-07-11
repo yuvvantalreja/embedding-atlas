@@ -23,6 +23,8 @@ vite.config.ts.timestamp-*
 !.vscode/settings.json
 !.vscode/extensions.json
 
+datasets/*
+
 *.log
 npm-debug.log*
 yarn-debug.log*
