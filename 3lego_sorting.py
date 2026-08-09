@@ -27,7 +27,7 @@ def _():
     import numpy as np
     import pandas as pd
 
-    return mo, np
+    return mo, np, pd
 
 
 @app.cell
@@ -144,6 +144,11 @@ async def _(async_compute_projection, build_frame_vectors, frames):
         columns=("observation.state", "action"),
         window=2,
     )
+
+    print(f"DF Columns {frame_atlas_df.columns}")
+
+    print(f"{frame_atlas_df[_vec][0].shape=}")
+
     frame_atlas_df = await async_compute_projection(
         frame_atlas_df,
         inputs=_vec,
@@ -161,6 +166,8 @@ async def _(async_compute_projection, build_frame_vectors, frames):
         ]
     )
     print(f"Frame atlas ready: {len(frame_atlas_df)} points")
+
+    print(f"Head: {frame_atlas_df.columns}")
     return (frame_atlas_df,)
 
 
@@ -265,22 +272,6 @@ def _(mo):
     mo.md(r"""
     ---
     ## Observation ↔ Trajectory linked atlas
-
-    Rebuild of the data-side analysis from `initial_report_v6.html`: every
-    anchor frame (1 per second) yields an **observation** vector
-    (proprioception + binned 120-step action history — what a policy
-    conditions on) and a **future-trajectory** vector (binned next-180-step
-    action chunk — what the demonstrator did). Both are embedded separately;
-    the two maps below share the same rows.
-
-    **Brush the observation map, then click "Update trajectory view" — the
-    trajectory map lights up the chunks those observations produce.** An
-    observation region that fans out to
-    *multiple* trajectory regions is multimodal p(a|obs) — the report's
-    central finding (adv ≈ 60% vs baseline ≈ 29% of obs neighborhoods
-    multimodal). Caveats: this uses UMAP (report: t-SNE) and no vision
-    features yet (see `vision.md`), so expect the adv ≫ baseline *gap*
-    to reproduce, not the exact numbers.
     """)
     return
 
@@ -351,6 +342,8 @@ def _(
         horizon=HORIZON,
         history_bins=HISTORY_BINS,
         horizon_bins=HORIZON_BINS,
+        state_output="state_vector",
+        history_output="history_vector",
     )
     anchors = add_subtask_family(anchors)
     # Coarse regime for the report-style comparison; `regime` keeps the
@@ -453,7 +446,7 @@ def _(EmbeddingAtlasWidget, anchor_atlas_df, mo):
         anchor_atlas_df,
         x="obs_x",
         y="obs_y",
-        neighbors="obs_neighbors",
+        # neighbors="obs_neighbors",
         row_id="anchor_id",
         text="anchor_text",
         labels="automatic",
@@ -559,6 +552,226 @@ def _(anchor_atlas_df, blob_cols_obs, mo, multimodality_summary):
             mo.md(_note),
             mo.md("Per adversarial round:"),
             mo.ui.table(mm_by_round.round(3), selection=None),
+        ]
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ---
+    ## State vs. action-history ablation
+
+    Report §10 suspects the 120-step action history "over-determines" the
+    next action chunk — you keep doing what you were already doing — which
+    could flatten the observation's conditional diversity. The report tested
+    this by *retraining* a policy without history; here's the data-side
+    version, no retraining needed: project **state alone** and **action
+    history alone** into their own atlases, cluster each into neighborhoods,
+    and measure how many distinct *future-trajectory* blobs each
+    neighborhood still maps to.
+
+    A neighborhood mapping to only one trajectory blob means that modality
+    alone already determines what happens next; mapping to many means it
+    still leaves the future undetermined (multimodal) — compare against the
+    combined `state + history` numbers already computed above.
+    """)
+    return
+
+
+@app.cell
+async def _(anchors, async_compute_projection):
+    modality_proj_df = anchors[["anchor_id", "state_vector", "history_vector"]].copy()
+    modality_proj_df = await async_compute_projection(
+        modality_proj_df,
+        inputs="state_vector",
+        modality="vector",
+        x="state_x",
+        y="state_y",
+        neighbors="state_neighbors",
+        umap_args={
+            "metric": "euclidean",
+            "n_neighbors": 15,
+            "min_dist": 0.1,
+            "random_state": 42,
+        },
+    )
+    modality_proj_df = await async_compute_projection(
+        modality_proj_df,
+        inputs="history_vector",
+        modality="vector",
+        x="history_x",
+        y="history_y",
+        neighbors="history_neighbors",
+        umap_args={
+            "metric": "euclidean",
+            "n_neighbors": 15,
+            "min_dist": 0.1,
+            "random_state": 42,
+        },
+    )
+    modality_proj_df = modality_proj_df.drop(columns=["state_vector", "history_vector"])
+    print(f"State/history projections ready: {len(modality_proj_df)} anchors")
+    return (modality_proj_df,)
+
+
+@app.cell
+def _(
+    BLOB_KS,
+    PRIMARY_K,
+    add_cluster_columns,
+    add_neighborhood_stats,
+    anchor_atlas_df,
+    modality_proj_df,
+):
+    ablation_atlas_df = anchor_atlas_df.merge(modality_proj_df, on="anchor_id")
+    ablation_atlas_df, blob_cols_state = add_cluster_columns(
+        ablation_atlas_df, x="state_x", y="state_y", ks=BLOB_KS, prefix="state_blob"
+    )
+    ablation_atlas_df, blob_cols_history = add_cluster_columns(
+        ablation_atlas_df, x="history_x", y="history_y", ks=BLOB_KS, prefix="history_blob"
+    )
+    # Cross-side fan-out, same recipe as `obs_fanout` above: for each
+    # state-only (resp. history-only) neighborhood, how many distinct
+    # future-trajectory blobs does it reach?
+    ablation_atlas_df = add_neighborhood_stats(
+        ablation_atlas_df,
+        blob_col=f"state_blob_k{PRIMARY_K}",
+        label_col=f"traj_blob_k{PRIMARY_K}",
+        regime_col="collection",
+        prefix="state_fanout",
+    )
+    ablation_atlas_df = add_neighborhood_stats(
+        ablation_atlas_df,
+        blob_col=f"history_blob_k{PRIMARY_K}",
+        label_col=f"traj_blob_k{PRIMARY_K}",
+        regime_col="collection",
+        prefix="history_fanout",
+    )
+    return (ablation_atlas_df,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Color by `state_fanout_n_behaviors` / `history_fanout_n_behaviors` (or
+    the `_multimodal` flags) to see, per point, whether that modality alone
+    pins down the future trajectory in that neighborhood.
+    """)
+    return
+
+
+@app.cell
+def _(EmbeddingAtlasWidget, ablation_atlas_df):
+    state_widget = EmbeddingAtlasWidget(
+        ablation_atlas_df,
+        x="state_x",
+        y="state_y",
+        row_id="anchor_id",
+        text="anchor_text",
+        labels="automatic",
+        show_charts=True,
+        show_table=False,
+        point_size=2.0,
+        default_charts_include=[
+            "collection",
+            "regime",
+            "subtask_family",
+            "progress",
+            "state_fanout_n_behaviors",
+            "state_fanout_multimodal",
+        ],
+    )
+    return (state_widget,)
+
+
+@app.cell
+def _(state_widget):
+    state_widget
+    return
+
+
+@app.cell
+def _(EmbeddingAtlasWidget, ablation_atlas_df):
+    history_widget = EmbeddingAtlasWidget(
+        ablation_atlas_df,
+        x="history_x",
+        y="history_y",
+        row_id="anchor_id",
+        text="anchor_text",
+        labels="automatic",
+        show_charts=True,
+        show_table=False,
+        point_size=2.0,
+        default_charts_include=[
+            "collection",
+            "regime",
+            "subtask_family",
+            "progress",
+            "history_fanout_n_behaviors",
+            "history_fanout_multimodal",
+        ],
+    )
+    return (history_widget,)
+
+
+@app.cell
+def _(history_widget):
+    history_widget
+    return
+
+
+@app.cell(hide_code=True)
+def _(PRIMARY_K, ablation_atlas_df, anchor_atlas_df, mo, multimodality_summary, pd):
+    fanout_summary = pd.concat(
+        [
+            multimodality_summary(
+                anchor_atlas_df,
+                blob_cols=[f"obs_blob_k{PRIMARY_K}"],
+                label_col=f"traj_blob_k{PRIMARY_K}",
+                regime_col="collection",
+            ).assign(modality="state + history (full obs)"),
+            multimodality_summary(
+                ablation_atlas_df,
+                blob_cols=[f"state_blob_k{PRIMARY_K}"],
+                label_col=f"traj_blob_k{PRIMARY_K}",
+                regime_col="collection",
+            ).assign(modality="state only"),
+            multimodality_summary(
+                ablation_atlas_df,
+                blob_cols=[f"history_blob_k{PRIMARY_K}"],
+                label_col=f"traj_blob_k{PRIMARY_K}",
+                regime_col="collection",
+            ).assign(modality="history only"),
+        ],
+        ignore_index=True,
+    )
+    mo.vstack(
+        [
+            mo.md(f"### Which modality alone best predicts the future trajectory? (K={PRIMARY_K})"),
+            mo.ui.table(
+                fanout_summary[
+                    [
+                        "modality",
+                        "regime",
+                        "n_blobs",
+                        "mean_local_behaviors",
+                        "frac_blobs_multimodal",
+                        "frac_mass_multimodal",
+                    ]
+                ].round(3),
+                selection=None,
+            ),
+            mo.md(
+                "`mean_local_behaviors` = average number of distinct future-trajectory "
+                "blobs a neighborhood of that modality still maps to (1.0 = fully "
+                "determined by that modality alone). If `state only` sits close to "
+                "`state + history (full obs)`, the action history isn't adding much "
+                "disambiguating information over state; if `history only` sits close "
+                "instead, the history is doing most of the conditioning work — the "
+                "report's suspicion in §10 that history over-determines the action."
+            ),
         ]
     )
     return

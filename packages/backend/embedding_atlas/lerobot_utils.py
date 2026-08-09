@@ -660,6 +660,8 @@ def build_anchor_vectors(
     regime_col: str = "regime",
     obs_output: str = "obs_vector",
     traj_output: str = "traj_vector",
+    state_output: str | None = None,
+    history_output: str | None = None,
 ) -> pd.DataFrame:
     """
     Build the canonical anchor-frame table for a linked obs <-> trajectory atlas.
@@ -677,6 +679,13 @@ def build_anchor_vectors(
       mean-pooled into ``horizon_bins`` bins (clamp-padded with the final
       action at episode end; ``future_padded_frac`` records how much of the
       window was padded so heavily-padded anchors can be filtered).
+
+    *state_output* / *history_output* optionally also expose the individual
+    (z-scored, unweighted) proprio-only and history-only blocks under their
+    own column names — for ablations that test each half of the observation
+    in isolation (report §10: does the action history alone, or the state
+    alone, already determine the future trajectory?). Left as ``None`` by
+    default so callers who only need *obs_output* pay no extra memory cost.
 
     *extra_blocks* merges precomputed per-anchor features (e.g. vision
     embeddings, see vision.md) as additional obs blocks: each value is a
@@ -827,6 +836,10 @@ def build_anchor_vectors(
 
     anchors[obs_output] = list(obs)
     anchors[traj_output] = list(traj)
+    if state_output:
+        anchors[state_output] = list(blocks["proprio"])
+    if history_output:
+        anchors[history_output] = list(blocks["history"])
     anchors["anchor_id"] = np.arange(len(anchors), dtype=np.int32)
 
     logger.info(
