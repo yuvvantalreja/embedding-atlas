@@ -179,11 +179,24 @@ def make_embedding_atlas_props(**options: Unpack[EmbeddingAtlasOptions]) -> dict
     # Initial state
     set_prop("initialState", options.get("initial_state"))
 
-    # Default color column for the embedding view
+    # Default color column for the embedding view. The frontend merges this
+    # override SHALLOWLY into its default embedding spec (default_charts.ts:
+    # `spec = { ...spec, ...config.embedding }`), so the `data` object must be
+    # complete — sending only {"category": ...} would clobber x/y and blank
+    # the embedding view.
     color = options.get("color")
     if color is not None:
+        embedding_data = {
+            "x": options.get("x"),
+            "y": options.get("y"),
+            "text": options.get("text"),
+            "image": options.get("image"),
+            "importance": options.get("importance"),
+            "neighbors": options.get("neighbors"),
+            "category": color,
+        }
         set_prop("defaultChartsConfig.embedding", {
-            "data": {"category": color},
+            "data": {k: v for k, v in embedding_data.items() if v is not None},
         })
 
     # Chart column curation
